@@ -1,8 +1,8 @@
-// Live tick stream.  Two paths:
-//   1) Binance WebSocket trade stream — true tick-by-tick.
-//   2) CoinGecko REST polling fallback (~5s cadence) for coins without a
-//      Binance USDT pair.
-// Returns a teardown function.
+// Live tick stream.  Browser cannot call api.binance.com directly (CORS + geo-block 451)
+// nor open the public WebSocket from many cloud regions, so we proxy Binance through
+// a TanStack Start server function and poll at ~1s for near-tick cadence.
+
+import { fetchBinancePrice, fetchBinanceKlines } from "./binanceProxy";
 
 export interface Tick {
   price: number;
@@ -13,36 +13,26 @@ export interface Tick {
 export type TickHandler = (tick: Tick) => void;
 
 export function subscribeBinance(symbol: string, onTick: TickHandler): () => void {
-  let ws: WebSocket | null = null;
-  let closed = false;
-  let retry = 0;
-
-  const connect = () => {
-    if (closed) return;
-    const url = `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@trade`;
-    ws = new WebSocket(url);
-    ws.onmessage = (ev) => {
+  let stopped = false;
+  let lastPrice = 0;
+  const poll = async () => {
+    while (!stopped) {
       try {
-        const msg = JSON.parse(ev.data as string);
-        if (msg && msg.p) {
-          onTick({ price: parseFloat(msg.p), ts: msg.T ?? Date.now(), size: parseFloat(msg.q) });
+        const t = await fetchBinancePrice({ data: { symbol } });
+        if (t.price && t.price !== lastPrice) {
+          lastPrice = t.price;
+          onTick(t);
+        } else if (t.price) {
+          // still emit periodic ticks so model recomputes
+          onTick(t);
         }
       } catch {}
-    };
-    ws.onclose = () => {
-      if (closed) return;
-      retry++;
-      setTimeout(connect, Math.min(8000, 500 * retry));
-    };
-    ws.onerror = () => {
-      ws?.close();
-    };
+      await new Promise((r) => setTimeout(r, 1500));
+    }
   };
-
-  connect();
+  poll();
   return () => {
-    closed = true;
-    ws?.close();
+    stopped = true;
   };
 }
 
@@ -69,18 +59,14 @@ export function subscribeCoinGecko(coinId: string, onTick: TickHandler): () => v
   };
 }
 
-// Seed with historical Binance klines for instant chart context
+// Seed with historical Binance klines via the server proxy
 export async function fetchBinanceHistory(
   symbol: string,
   interval = "1m",
   limit = 200,
 ): Promise<Tick[]> {
   try {
-    const res = await fetch(
-      `https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=${limit}`,
-    );
-    const data = (await res.json()) as Array<unknown[]>;
-    return data.map((k) => ({ ts: k[0] as number, price: parseFloat(k[4] as string) }));
+    return await fetchBinanceKlines({ data: { symbol, interval, limit } });
   } catch {
     return [];
   }

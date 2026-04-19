@@ -1,7 +1,12 @@
 // Coin universe via CoinGecko + Binance symbol map.
 // We fetch the full ~10k coin list once, then map each coin (when possible)
-// to a Binance USDT spot symbol for tick-by-tick WebSocket streams.
+// to a Binance USDT spot symbol for tick-by-tick streams.
 // Coins without Binance pairs fall back to CoinGecko REST polling.
+//
+// Binance endpoints are CORS- and geo-blocked from the browser, so the
+// exchangeInfo call goes through a TanStack Start server function.
+
+import { createServerFn } from "@tanstack/react-start";
 
 export interface Coin {
   id: string; // coingecko id
@@ -11,33 +16,29 @@ export interface Coin {
 }
 
 let coinCache: Coin[] | null = null;
-let binanceSymbols: Set<string> | null = null;
 
-async function loadBinanceSymbols(): Promise<Set<string>> {
-  if (binanceSymbols) return binanceSymbols;
-  try {
-    const res = await fetch("https://api.binance.com/api/v3/exchangeInfo");
-    const data = await res.json();
-    const set = new Set<string>();
-    for (const s of data.symbols ?? []) {
-      if (s.status === "TRADING" && s.quoteAsset === "USDT") {
-        set.add(String(s.baseAsset).toLowerCase());
-      }
+const fetchBinanceUsdtBases = createServerFn({ method: "GET" }).handler(async () => {
+  const res = await fetch("https://api.binance.com/api/v3/exchangeInfo", {
+    headers: { "User-Agent": "QuantumEdge/1.0" },
+  });
+  if (!res.ok) return [] as string[];
+  const data = (await res.json()) as { symbols?: Array<{ status: string; quoteAsset: string; baseAsset: string }> };
+  const out: string[] = [];
+  for (const s of data.symbols ?? []) {
+    if (s.status === "TRADING" && s.quoteAsset === "USDT") {
+      out.push(String(s.baseAsset).toLowerCase());
     }
-    binanceSymbols = set;
-    return set;
-  } catch {
-    binanceSymbols = new Set();
-    return binanceSymbols;
   }
-}
+  return out;
+});
 
 export async function loadAllCoins(): Promise<Coin[]> {
   if (coinCache) return coinCache;
-  const [list, binSet] = await Promise.all([
-    fetch("https://api.coingecko.com/api/v3/coins/list").then((r) => r.json()),
-    loadBinanceSymbols(),
+  const [list, binArr] = await Promise.all([
+    fetch("https://api.coingecko.com/api/v3/coins/list").then((r) => r.json()).catch(() => []),
+    fetchBinanceUsdtBases().catch(() => [] as string[]),
   ]);
+  const binSet = new Set<string>(binArr);
   const coins: Coin[] = (list as Array<{ id: string; symbol: string; name: string }>).map((c) => {
     const sym = c.symbol.toLowerCase();
     return {
