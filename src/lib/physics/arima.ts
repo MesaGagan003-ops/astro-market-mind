@@ -116,9 +116,13 @@ export function fitArima111(prices: number[]): ArimaResult {
     let p = lastPrice;
     let prevY = d[d.length - 1] ?? 0;        // last observed differenced value
     let prevE = resid[resid.length - 1] ?? 0; // last in-sample shock
+    // Clamp shocks to ±2σ so a single outlier residual cannot send the
+    // whole forecast flying — keeps wiggles realistic but bounded.
+    const shockCap = 2 * residualStd;
     for (let i = 0; i < steps; i++) {
-      // Stochastic shock keeps the path non-flat (wiggles).
-      const eps = gaussian(rng) * residualStd;
+      let eps = gaussian(rng) * residualStd;
+      if (eps > shockCap) eps = shockCap;
+      else if (eps < -shockCap) eps = -shockCap;
       const yPrime = best.c + best.phi * prevY + best.theta * prevE + eps;
       p += yPrime;
       out.push(p);
