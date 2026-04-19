@@ -6,6 +6,7 @@ import { PredictionChart } from "@/components/PredictionChart";
 import { ModelPanels } from "@/components/ModelPanels";
 import { AccuracyTracker } from "@/components/AccuracyTracker";
 import { DemoTrading } from "@/components/DemoTrading";
+import { NewsPanel } from "@/components/NewsPanel";
 import { FEATURED_COINS, type Coin } from "@/lib/coins";
 import { TIMEFRAMES, type Timeframe } from "@/lib/timeframes";
 import {
@@ -253,6 +254,15 @@ function PredictionEngine() {
             <div className="panel p-4 text-sm text-muted-foreground">Awaiting first prediction…</div>
           )}
         </div>
+
+        {/* News + sentiment-adjusted forecast */}
+        <NewsPanel
+          coin={coin}
+          prediction={prediction}
+          currentPrice={currentPrice}
+          history={ticks.map((t) => ({ ts: t.ts, price: t.price }))}
+          minutesPerStep={minutesPerStep}
+        />
 
         {/* Demo trading */}
         <DemoTrading coin={coin} currentPrice={currentPrice} prediction={prediction} />
