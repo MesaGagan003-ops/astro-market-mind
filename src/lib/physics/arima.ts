@@ -1,14 +1,48 @@
-// ARIMA(2,1,2) — autoregressive integrated moving average
-// Differencing once, then AR(2) + MA(2) on returns. Lightweight OLS-style fit.
+// ARIMA(1,1,1) — exactly per the notebook spec:
+//   y'_t = c + φ₁·y'_{t-1} + θ₁·ε_{t-1} + ε_t
+// where y'_t = Y_t - Y_{t-1}  (d=1, first difference).
+//
+// Fit:
+//   1. Difference the price series.
+//   2. Grid-search (φ, θ) by minimising Sum-of-Squared-Errors of the
+//      one-step-ahead prediction on the in-sample residual recursion
+//      (the same procedure described in the notebook: guess → score → optimise).
+//   3. Estimate residual σ from the best-fit residuals.
+//
+// Forecast:
+//   Recursive — at each step we sample a fresh shock ε_t ~ N(0, σ_resid)
+//   so the projected path has realistic *wiggles* instead of a smooth line.
+//   Future ε terms used in the MA component are the *previous* sampled shocks,
+//   matching the actual ARIMA recursion.
 
 export interface ArimaResult {
-  drift: number; // expected change per step
-  ar1: number;
-  ar2: number;
-  ma1: number;
-  ma2: number;
+  c: number;          // drift constant
+  phi: number;        // AR(1) coefficient
+  theta: number;      // MA(1) coefficient
   residualStd: number;
-  forecast: (steps: number, lastPrice: number) => number[];
+  driftPerStep: number; // long-run expected change per step = c / (1 - φ)
+  // Returns one stochastic price path of `steps` future prices.
+  forecast: (steps: number, lastPrice: number, seed?: number) => number[];
+}
+
+// Tiny seedable RNG (mulberry32) so renders are deterministic per (coin, time).
+function mulberry32(seed: number) {
+  let t = seed >>> 0;
+  return () => {
+    t = (t + 0x6D2B79F5) >>> 0;
+    let r = t;
+    r = Math.imul(r ^ (r >>> 15), r | 1);
+    r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Box–Muller standard normal from a uniform RNG.
+function gaussian(rng: () => number): number {
+  let u = 0, v = 0;
+  while (u === 0) u = rng();
+  while (v === 0) v = rng();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
 function diff(series: number[]): number[] {
@@ -17,83 +51,82 @@ function diff(series: number[]): number[] {
   return out;
 }
 
-// Simple Yule-Walker style AR(2) coefficient estimation
-function estimateAR(series: number[]): [number, number] {
-  const n = series.length;
-  if (n < 4) return [0, 0];
-  const mean = series.reduce((a, b) => a + b, 0) / n;
-  const centered = series.map((x) => x - mean);
-  let r0 = 0, r1 = 0, r2 = 0;
-  for (let i = 0; i < n; i++) r0 += centered[i] ** 2;
-  for (let i = 0; i < n - 1; i++) r1 += centered[i] * centered[i + 1];
-  for (let i = 0; i < n - 2; i++) r2 += centered[i] * centered[i + 2];
-  r0 /= n; r1 /= n; r2 /= n;
-  if (r0 === 0) return [0, 0];
-  const rho1 = r1 / r0;
-  const rho2 = r2 / r0;
-  const denom = 1 - rho1 * rho1;
-  if (Math.abs(denom) < 1e-9) return [0, 0];
-  const phi1 = (rho1 * (1 - rho2)) / denom;
-  const phi2 = (rho2 - rho1 * rho1) / denom;
-  return [
-    Math.max(-0.99, Math.min(0.99, phi1)),
-    Math.max(-0.99, Math.min(0.99, phi2)),
-  ];
+// Score a candidate (c, φ, θ) by SSE of the one-step prediction recursion.
+function scoreSSE(d: number[], c: number, phi: number, theta: number): { sse: number; resid: number[] } {
+  const resid: number[] = [];
+  let prevY = d[0];
+  let prevE = 0;
+  let sse = 0;
+  for (let t = 1; t < d.length; t++) {
+    const pred = c + phi * prevY + theta * prevE;
+    const err = d[t] - pred;
+    sse += err * err;
+    resid.push(err);
+    prevY = d[t];
+    prevE = err;
+  }
+  return { sse, resid };
 }
 
-export function fitArima212(prices: number[]): ArimaResult {
+export function fitArima111(prices: number[]): ArimaResult {
   if (prices.length < 8) {
     return {
-      drift: 0, ar1: 0, ar2: 0, ma1: 0, ma2: 0, residualStd: 0,
+      c: 0, phi: 0, theta: 0, residualStd: 0, driftPerStep: 0,
       forecast: (steps, last) => Array(steps).fill(last),
     };
   }
-  const returns = diff(prices);
-  const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-  const [ar1, ar2] = estimateAR(returns);
+  const d = diff(prices);
+  const meanD = d.reduce((a, b) => a + b, 0) / d.length;
 
-  // Residuals from AR fit
-  const resid: number[] = [];
-  for (let i = 2; i < returns.length; i++) {
-    const pred = mean + ar1 * (returns[i - 1] - mean) + ar2 * (returns[i - 2] - mean);
-    resid.push(returns[i] - pred);
+  // Grid search φ ∈ (-0.95, 0.95), θ ∈ (-0.95, 0.95). Notebook's
+  // "guess → score → optimise" loop, vectorised over a coarse grid then refined.
+  let best = { sse: Infinity, c: meanD, phi: 0, theta: 0 };
+  for (let phi = -0.9; phi <= 0.9; phi += 0.1) {
+    for (let theta = -0.9; theta <= 0.9; theta += 0.1) {
+      // Optimal c given (φ,θ): mean of (d_t - φ·d_{t-1} - θ·ε_{t-1})
+      // Approximate by mean(d) · (1 - φ) which is the closed-form for c.
+      const c = meanD * (1 - phi);
+      const { sse } = scoreSSE(d, c, phi, theta);
+      if (sse < best.sse) best = { sse, c, phi, theta };
+    }
   }
-  // MA terms via lag-1/lag-2 autocorrelation of residuals (approximation)
-  let ma1 = 0, ma2 = 0;
-  if (resid.length > 4) {
-    const rmean = resid.reduce((a, b) => a + b, 0) / resid.length;
-    let s0 = 0, s1 = 0, s2 = 0;
-    for (let i = 0; i < resid.length; i++) s0 += (resid[i] - rmean) ** 2;
-    for (let i = 0; i < resid.length - 1; i++) s1 += (resid[i] - rmean) * (resid[i + 1] - rmean);
-    for (let i = 0; i < resid.length - 2; i++) s2 += (resid[i] - rmean) * (resid[i + 2] - rmean);
-    if (s0 > 0) {
-      ma1 = Math.max(-0.95, Math.min(0.95, s1 / s0));
-      ma2 = Math.max(-0.95, Math.min(0.95, s2 / s0));
+  // Local refine
+  const step = 0.02;
+  for (let dphi = -0.1; dphi <= 0.1; dphi += step) {
+    for (let dtheta = -0.1; dtheta <= 0.1; dtheta += step) {
+      const phi = Math.max(-0.98, Math.min(0.98, best.phi + dphi));
+      const theta = Math.max(-0.98, Math.min(0.98, best.theta + dtheta));
+      const c = meanD * (1 - phi);
+      const { sse } = scoreSSE(d, c, phi, theta);
+      if (sse < best.sse) best = { sse, c, phi, theta };
     }
   }
 
+  const { resid } = scoreSSE(d, best.c, best.phi, best.theta);
   const residualStd = Math.sqrt(
     resid.reduce((a, b) => a + b * b, 0) / Math.max(1, resid.length),
-  );
+  ) || 1e-9;
 
-  const drift = mean + ar1 * mean + ar2 * mean;
+  // Long-run drift per step (stationary mean of y'_t)
+  const driftPerStep = Math.abs(1 - best.phi) > 1e-6 ? best.c / (1 - best.phi) : best.c;
 
-  const forecast = (steps: number, lastPrice: number) => {
+  const forecast = (steps: number, lastPrice: number, seed = 1) => {
+    const rng = mulberry32(seed || 1);
     const out: number[] = [];
     let p = lastPrice;
-    let r1 = returns[returns.length - 1] ?? 0;
-    let r2 = returns[returns.length - 2] ?? 0;
-    let e1 = resid[resid.length - 1] ?? 0;
-    let e2 = resid[resid.length - 2] ?? 0;
+    let prevY = d[d.length - 1] ?? 0;        // last observed differenced value
+    let prevE = resid[resid.length - 1] ?? 0; // last in-sample shock
     for (let i = 0; i < steps; i++) {
-      const r = mean + ar1 * (r1 - mean) + ar2 * (r2 - mean) + ma1 * e1 + ma2 * e2;
-      p += r;
+      // Stochastic shock keeps the path non-flat (wiggles).
+      const eps = gaussian(rng) * residualStd;
+      const yPrime = best.c + best.phi * prevY + best.theta * prevE + eps;
+      p += yPrime;
       out.push(p);
-      r2 = r1; r1 = r;
-      e2 = e1; e1 = 0; // future shocks expected to be zero
+      prevY = yPrime;
+      prevE = eps;
     }
     return out;
   };
 
-  return { drift, ar1, ar2, ma1, ma2, residualStd, forecast };
+  return { c: best.c, phi: best.phi, theta: best.theta, residualStd, driftPerStep, forecast };
 }
