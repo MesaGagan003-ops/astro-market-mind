@@ -29,7 +29,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Live tick-by-tick crypto forecasting using ARIMA, GARCH, HMM, Shannon entropy, Quantum & Stochastic Speed Limits, and Quantum Probability density.",
+          "Live crypto forecasting using ARIMA(1,1,1), GARCH(1,1), HMM, Shannon entropy, and Quantum + Stochastic Speed Limits.",
       },
       { property: "og:title", content: "QuantumEdge — Physics Prediction Engine" },
       {
@@ -195,7 +195,7 @@ function PredictionEngine() {
                   <span className="text-primary">{timeframe.label} forecast</span>
                 </h2>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Hybrid path = ARIMA drift × HMM regime × Quantum E[price], clipped by QSL ±2.4σ√N
+                  Hybrid path = ARIMA(1,1,1) recursion + HMM regime drift, entropy-damped & QSL-clipped
                 </p>
               </div>
               {prediction && (
@@ -258,16 +258,17 @@ function PredictionEngine() {
 
         {/* Footer note */}
         <div className="panel p-4 text-[11px] text-muted-foreground leading-relaxed">
-          <strong className="text-foreground">Hybrid weighting:</strong> ARIMA(2,1,2) drift (35%)
-          provides the directional baseline; the HMM regime probability (25%) gates that drift by
-          regime confidence; the Quantum probability density E[price] (20%) blends the path toward
-          its expected value; Shannon entropy (1−H) dampens overall signal magnitude — high entropy
-          means most of the move is noise. GARCH(1,1) sets the σ-band width; the
-          <span style={{ color: "var(--qsl)" }}> Quantum Speed Limit</span> hard-clips the path
-          to ±2.4σ·√N (Mandelstam–Tamm); the
-          <span style={{ color: "var(--ssl)" }}> Stochastic Speed Limit</span> shows the Itô
-          diffusion 95% bound (μT ± 1.96σ√T). Directional accuracy is tracked locally per
-          coin/timeframe — predictions resolve automatically once the horizon elapses.
+          <strong className="text-foreground">How the models cooperate:</strong> ARIMA(1,1,1) is
+          fit by SSE-minimising (φ, θ) on differenced prices and produces a recursive,
+          shock-driven forecast — the wiggles you see come from sampled εₜ ~ N(0, σ_resid).
+          The <span style={{ color: "var(--hmm)" }}>HMM</span> Forward+Viterbi pass adds a regime
+          drift bias proportional to (P(bull) − P(bear))·σ. <span style={{ color: "var(--entropy)" }}>Shannon
+          entropy</span> dampens the deviation from spot — high H means noise dominates so the
+          path is pulled back. <span style={{ color: "var(--garch)" }}>GARCH(1,1)</span> sets the
+          σ-band width per step. Finally the <span style={{ color: "var(--qsl)" }}>Quantum Speed
+          Limit</span> hard-clips the path to ±2.4σ·√N (Mandelstam–Tamm) and the
+          <span style={{ color: "var(--ssl)" }}> Stochastic Speed Limit</span> draws the Itô 95%
+          envelope (μT ± 1.96σ√T). Directional accuracy is tracked locally.
         </div>
       </main>
     </div>
