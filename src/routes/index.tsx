@@ -5,6 +5,7 @@ import { TimeframePicker } from "@/components/TimeframePicker";
 import { PredictionChart } from "@/components/PredictionChart";
 import { ModelPanels } from "@/components/ModelPanels";
 import { AccuracyTracker } from "@/components/AccuracyTracker";
+import { DemoTrading } from "@/components/DemoTrading";
 import { FEATURED_COINS, type Coin } from "@/lib/coins";
 import { TIMEFRAMES, type Timeframe } from "@/lib/timeframes";
 import {
