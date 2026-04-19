@@ -1,4 +1,4 @@
-import { ComposedChart, Line, Area, XAxis, YAxis, ResponsiveContainer, ReferenceLine, Tooltip } from "recharts";
+import { ComposedChart, Line, Area, XAxis, YAxis, ResponsiveContainer, ReferenceLine, Tooltip, CartesianGrid } from "recharts";
 import type { HybridResult } from "@/lib/physics/hybrid";
 
 interface Props {
@@ -9,19 +9,12 @@ interface Props {
 }
 
 export function PredictionChart({ history, prediction, currentPrice, minutesPerStep }: Props) {
-  // Build unified series
-  const histStart = history.length > 0 ? history[0].ts : Date.now();
-  const histPoints = history.map((h) => ({
-    t: h.ts,
-    label: relTime(h.ts, histStart),
-    actual: h.price,
-  }));
+  const histPoints = history.map((h) => ({ t: h.ts, actual: h.price }));
 
   const lastTs = history.length > 0 ? history[history.length - 1].ts : Date.now();
   const stepMs = minutesPerStep * 60 * 1000;
   const futurePoints = prediction.forecast.map((f) => ({
     t: lastTs + f.step * stepMs,
-    label: `+${formatMins(f.step * minutesPerStep)}`,
     predicted: f.price,
     upper: f.upper,
     lower: f.lower,
@@ -31,8 +24,8 @@ export function PredictionChart({ history, prediction, currentPrice, minutesPerS
     sslL: f.sslLower,
   }));
 
-  // Bridge point so the predicted line starts at current price
-  const bridge = { t: lastTs, label: "now", actual: currentPrice, predicted: currentPrice };
+  // Bridge so predicted line begins exactly at the current spot price.
+  const bridge = { t: lastTs, actual: currentPrice, predicted: currentPrice };
   const data = [...histPoints, bridge, ...futurePoints];
 
   const allVals = data.flatMap((d: any) =>
@@ -40,7 +33,10 @@ export function PredictionChart({ history, prediction, currentPrice, minutesPerS
   );
   const min = Math.min(...allVals);
   const max = Math.max(...allVals);
-  const pad = (max - min) * 0.05;
+  const pad = (max - min) * 0.06 || max * 0.001;
+
+  const tStart = data[0]?.t ?? lastTs;
+  const tEnd = data[data.length - 1]?.t ?? lastTs;
 
   return (
     <ResponsiveContainer width="100%" height={420}>
@@ -50,18 +46,29 @@ export function PredictionChart({ history, prediction, currentPrice, minutesPerS
             <stop offset="0%" stopColor="oklch(0.72 0.22 305)" stopOpacity={0.18} />
             <stop offset="100%" stopColor="oklch(0.72 0.22 305)" stopOpacity={0.04} />
           </linearGradient>
-          <linearGradient id="sslFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="oklch(0.78 0.18 130)" stopOpacity={0.15} />
-            <stop offset="100%" stopColor="oklch(0.78 0.18 130)" stopOpacity={0.02} />
+          <linearGradient id="actualFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="oklch(0.72 0.18 230)" stopOpacity={0.25} />
+            <stop offset="100%" stopColor="oklch(0.72 0.18 230)" stopOpacity={0.0} />
           </linearGradient>
         </defs>
-        <XAxis dataKey="label" tick={{ fill: "oklch(0.65 0.03 255)", fontSize: 10 }} stroke="oklch(0.28 0.04 265)" interval="preserveStartEnd" />
+        <CartesianGrid stroke="oklch(0.28 0.04 265)" strokeOpacity={0.25} vertical={false} />
+        <XAxis
+          dataKey="t"
+          type="number"
+          scale="time"
+          domain={[tStart, tEnd]}
+          tick={{ fill: "oklch(0.65 0.03 255)", fontSize: 10 }}
+          stroke="oklch(0.28 0.04 265)"
+          tickFormatter={(v) => formatTime(v, tEnd - tStart)}
+          minTickGap={48}
+        />
         <YAxis
           domain={[min - pad, max + pad]}
           tick={{ fill: "oklch(0.65 0.03 255)", fontSize: 10 }}
           stroke="oklch(0.28 0.04 265)"
           tickFormatter={(v) => formatPrice(v)}
           width={70}
+          orientation="right"
         />
         <Tooltip
           contentStyle={{
@@ -70,22 +77,24 @@ export function PredictionChart({ history, prediction, currentPrice, minutesPerS
             borderRadius: 8,
             fontSize: 12,
           }}
+          labelFormatter={(v: any) => new Date(v).toLocaleString()}
           formatter={(value: any, name: any) => [typeof value === "number" ? formatPrice(value) : String(value), String(name)]}
         />
-        <ReferenceLine y={currentPrice} stroke="oklch(0.72 0.18 230)" strokeDasharray="3 3" strokeOpacity={0.5} />
+        <ReferenceLine x={lastTs} stroke="oklch(0.65 0.03 255)" strokeDasharray="2 4" strokeOpacity={0.5} label={{ value: "now", position: "top", fill: "oklch(0.65 0.03 255)", fontSize: 10 }} />
+        <ReferenceLine y={currentPrice} stroke="oklch(0.72 0.18 230)" strokeDasharray="3 3" strokeOpacity={0.4} />
         {/* QSL band */}
-        <Area dataKey="qslU" stroke="oklch(0.72 0.22 305)" strokeWidth={0.5} strokeDasharray="3 3" fill="url(#qslFill)" connectNulls />
-        <Area dataKey="qslL" stroke="oklch(0.72 0.22 305)" strokeWidth={0.5} strokeDasharray="3 3" fill="transparent" connectNulls />
-        {/* SSL band */}
-        <Line dataKey="sslU" stroke="oklch(0.78 0.18 130)" strokeWidth={1} strokeDasharray="4 2" dot={false} connectNulls />
-        <Line dataKey="sslL" stroke="oklch(0.78 0.18 130)" strokeWidth={1} strokeDasharray="4 2" dot={false} connectNulls />
-        {/* GARCH 1σ band */}
-        <Line dataKey="upper" stroke="oklch(0.75 0.18 60)" strokeWidth={0.8} strokeOpacity={0.6} dot={false} connectNulls />
-        <Line dataKey="lower" stroke="oklch(0.75 0.18 60)" strokeWidth={0.8} strokeOpacity={0.6} dot={false} connectNulls />
-        {/* Actual */}
-        <Line dataKey="actual" stroke="oklch(0.95 0.01 250)" strokeWidth={1.5} dot={false} connectNulls />
+        <Area dataKey="qslU" stroke="oklch(0.72 0.22 305)" strokeWidth={0.5} strokeDasharray="3 3" fill="url(#qslFill)" connectNulls isAnimationActive={false} />
+        <Area dataKey="qslL" stroke="oklch(0.72 0.22 305)" strokeWidth={0.5} strokeDasharray="3 3" fill="transparent" connectNulls isAnimationActive={false} />
+        {/* SSL */}
+        <Line dataKey="sslU" stroke="oklch(0.78 0.18 130)" strokeWidth={1} strokeDasharray="4 2" dot={false} connectNulls isAnimationActive={false} />
+        <Line dataKey="sslL" stroke="oklch(0.78 0.18 130)" strokeWidth={1} strokeDasharray="4 2" dot={false} connectNulls isAnimationActive={false} />
+        {/* GARCH 1σ */}
+        <Line dataKey="upper" stroke="oklch(0.75 0.18 60)" strokeWidth={0.8} strokeOpacity={0.6} dot={false} connectNulls isAnimationActive={false} />
+        <Line dataKey="lower" stroke="oklch(0.75 0.18 60)" strokeWidth={0.8} strokeOpacity={0.6} dot={false} connectNulls isAnimationActive={false} />
+        {/* Actual price (CoinGecko-style filled area) */}
+        <Area dataKey="actual" stroke="oklch(0.72 0.18 230)" strokeWidth={1.6} fill="url(#actualFill)" dot={false} connectNulls isAnimationActive={false} />
         {/* Prediction */}
-        <Line dataKey="predicted" stroke="oklch(0.65 0.24 25)" strokeWidth={2} dot={false} connectNulls />
+        <Line dataKey="predicted" stroke="oklch(0.65 0.24 25)" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
       </ComposedChart>
     </ResponsiveContainer>
   );
@@ -98,14 +107,20 @@ function formatPrice(v: number): string {
   return `$${v.toExponential(2)}`;
 }
 
-function formatMins(m: number): string {
-  if (m < 60) return `${m}m`;
-  if (m < 60 * 24) return `${Math.round(m / 60)}h`;
-  if (m < 60 * 24 * 7) return `${Math.round(m / (60 * 24))}d`;
-  return `${(m / (60 * 24 * 7)).toFixed(1)}w`;
-}
-
-function relTime(ts: number, start: number): string {
-  const d = Math.round((ts - start) / 60000);
-  return `${d}m`;
+// CoinGecko-style adaptive time labels.
+function formatTime(ts: number, spanMs: number): string {
+  const d = new Date(ts);
+  const spanH = spanMs / 3_600_000;
+  if (spanH < 6) {
+    // intraday: HH:MM
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+  if (spanH < 48) {
+    // ~1-2 days: "DD HH:MM"
+    return `${d.getDate().toString().padStart(2, "0")} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+  }
+  if (spanH < 24 * 14) {
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+  return d.toLocaleDateString([], { month: "short", year: "2-digit" });
 }
