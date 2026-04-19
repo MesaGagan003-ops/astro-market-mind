@@ -7,63 +7,90 @@ interface Props {
   minutes: number;
 }
 
-export function ModelPanels({ result, currentPrice, minutes }: Props) {
-  const { arima, garch, hmm, entropy, qsl, ssl, quantum } = result;
+export function ModelPanels({ result, minutes }: Props) {
+  const { arima, garch, hmm, entropy, qsl, ssl } = result;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
       <Panel
-        title="ARIMA(2,1,2)"
+        title="ARIMA(1,1,1)"
         accent="var(--arima)"
-        subtitle="Autoregressive drift baseline"
+        subtitle="y'ₜ = c + φ·y'ₜ₋₁ + θ·εₜ₋₁ + εₜ"
       >
-        <Row label="Drift / candle" value={signedPrice(arima.drift)} />
-        <Row label="AR(1) / AR(2)" value={`${arima.ar1.toFixed(3)} / ${arima.ar2.toFixed(3)}`} />
-        <Row label="MA(1) / MA(2)" value={`${arima.ma1.toFixed(3)} / ${arima.ma2.toFixed(3)}`} />
-        <Row label="Residual σ" value={signedPrice(arima.residualStd)} />
+        <Row label="Drift c" value={signedPrice(arima.c)} />
+        <Row label="φ (AR memory)" value={arima.phi.toFixed(3)} />
+        <Row label="θ (MA shock)" value={arima.theta.toFixed(3)} />
+        <Row label="Long-run drift / step" value={signedPrice(arima.driftPerStep)} />
+        <Row label="Residual σ" value={formatPrice(arima.residualStd)} />
+        <p className="text-[10px] text-muted-foreground mt-2 leading-relaxed">
+          Forecast path is recursive with sampled shocks ε ~ N(0, σ_resid) — that's why the
+          predicted line wiggles instead of going straight.
+        </p>
       </Panel>
 
       <Panel
         title="GARCH(1,1)"
         accent="var(--garch)"
-        subtitle="Volatility clustering"
+        subtitle="σ²ₜ = ω + α·ε²ₜ₋₁ + β·σ²ₜ₋₁"
       >
+        <Row label="ω (baseline)" value={garch.omega.toExponential(2)} />
+        <Row label="α (shock reactivity)" value={garch.alpha.toFixed(3)} />
+        <Row label="β (volatility memory)" value={garch.beta.toFixed(3)} />
         <Row label="α + β (persistence)" value={(garch.alpha + garch.beta).toFixed(3)} />
-        <Row label="α" value={garch.alpha.toFixed(3)} />
-        <Row label="β" value={garch.beta.toFixed(3)} />
         <Row label="1σ band" value={`±${formatPrice(garch.sigma)}`} />
+        <p className="text-[10px] text-muted-foreground mt-2 leading-relaxed">
+          {garch.alpha + garch.beta > 0.95
+            ? "Persistent — once volatility spikes it lingers."
+            : garch.alpha > garch.beta
+              ? "Spiky — reacts fast to shocks then calms."
+              : "Sluggish — slow to react but trends long."}
+        </p>
       </Panel>
 
       <Panel
         title="Hidden Markov Model"
         accent="var(--hmm)"
-        subtitle="3 latent regimes via Forward algorithm"
+        subtitle="Forward + Viterbi over 3 latent regimes"
+        full
       >
-        {hmm.stateProbs.map((p, i) => (
-          <div key={i} className="mb-1.5">
-            <div className="flex justify-between text-xs mb-0.5">
-              <span className={i === hmm.dominantState ? "text-foreground font-semibold" : "text-muted-foreground"}>
-                {HMM_STATE_LABELS[i]}
-              </span>
-              <span className="text-foreground font-mono">{(p * 100).toFixed(0)}%</span>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
+              Current state probabilities
             </div>
-            <div className="h-1.5 bg-muted rounded overflow-hidden">
-              <div
-                className="h-full"
-                style={{
-                  width: `${p * 100}%`,
-                  background: i === 0 ? "var(--bear)" : i === 2 ? "var(--bull)" : "var(--entropy)",
-                }}
-              />
-            </div>
+            {hmm.stateProbs.map((p, i) => (
+              <div key={i} className="mb-1.5">
+                <div className="flex justify-between text-xs mb-0.5">
+                  <span className={i === hmm.dominantState ? "text-foreground font-semibold" : "text-muted-foreground"}>
+                    {HMM_STATE_LABELS[i]}
+                  </span>
+                  <span className="text-foreground font-mono">{(p * 100).toFixed(0)}%</span>
+                </div>
+                <div className="h-1.5 bg-muted rounded overflow-hidden">
+                  <div
+                    className="h-full"
+                    style={{
+                      width: `${p * 100}%`,
+                      background: i === 0 ? "var(--bear)" : i === 2 ? "var(--bull)" : "var(--entropy)",
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
+              Transition matrix P(sₜ | sₜ₋₁) — learned from Viterbi path
+            </div>
+            <TransitionMatrix matrix={hmm.transitionMatrix} />
+          </div>
+        </div>
       </Panel>
 
       <Panel
         title="Shannon Entropy"
         accent="var(--entropy)"
-        subtitle="Information edge over coin-flip"
+        subtitle="H(X) = −Σ p(xᵢ) log₂ p(xᵢ)"
       >
         <div className="text-3xl font-display font-bold text-foreground">
           H = {entropy.H.toFixed(3)}
@@ -75,7 +102,11 @@ export function ModelPanels({ result, currentPrice, minutes }: Props) {
           <div className="h-full bg-entropy" style={{ width: `${entropy.H * 100}%` }} />
         </div>
         <div className="text-[10px] text-muted-foreground mt-1">
-          {entropy.H > 0.85 ? "Near-random — don't overtrade." : entropy.H > 0.6 ? "Moderate structure." : "Strong directional structure."}
+          {entropy.H > 0.85
+            ? "High — chaotic, near-random walk. Don't overtrade."
+            : entropy.H > 0.6
+              ? "Medium — transitional, regime shifting."
+              : "Low — trending, organized. Strong signal."}
         </div>
       </Panel>
 
@@ -88,7 +119,8 @@ export function ModelPanels({ result, currentPrice, minutes }: Props) {
         <Row label="Lower bound" value={formatPrice(qsl.lower)} />
         <Row label="Reachable range" value={`±${formatPrice(qsl.reachableRange / 2)}`} />
         <p className="text-[10px] text-muted-foreground mt-2 leading-relaxed">
-          Given σ = {formatPrice(garch.sigma)}, the market state cannot move more than ~2.4σ·√{minutes / 1} in {minutes} min.
+          With σ = {formatPrice(garch.sigma)}, price cannot move more than
+          ~2.4σ·√{minutes} in {minutes} min. Hard-clips the hybrid path.
         </p>
       </Panel>
 
@@ -104,20 +136,43 @@ export function ModelPanels({ result, currentPrice, minutes }: Props) {
           μT ± 1.96σ√T. Tighter than QSL when drift dominates noise.
         </p>
       </Panel>
+    </div>
+  );
+}
 
-      <Panel
-        title="Quantum Probability Density"
-        accent="var(--quantum)"
-        subtitle="|ψ(x,T)|² over future prices"
-        full
-      >
-        <QuantumDensityViz density={quantum.density} grid={quantum.grid} current={currentPrice} />
-        <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
-          <Stat label="Most probable" value={formatPrice(quantum.mostProbable)} />
-          <Stat label="E[price]" value={formatPrice(quantum.expectedPrice)} />
-          <Stat label="P(up)" value={`${(quantum.pUp * 100).toFixed(0)}%`} />
-        </div>
-      </Panel>
+function TransitionMatrix({ matrix }: { matrix: number[][] }) {
+  const labels = ["Bear", "Neutral", "Bull"];
+  return (
+    <div className="overflow-hidden rounded border border-border">
+      <table className="w-full text-[11px] font-mono">
+        <thead>
+          <tr className="bg-muted/40">
+            <th className="px-2 py-1 text-left text-muted-foreground font-normal">from \ to</th>
+            {labels.map((l) => (
+              <th key={l} className="px-2 py-1 text-right text-muted-foreground font-normal">{l}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {matrix.map((row, i) => (
+            <tr key={i} className="border-t border-border">
+              <td className="px-2 py-1 text-muted-foreground">{labels[i]}</td>
+              {row.map((v, j) => {
+                const intensity = Math.min(1, v * 1.2);
+                return (
+                  <td
+                    key={j}
+                    className="px-2 py-1 text-right text-foreground"
+                    style={{ background: `color-mix(in oklab, var(--hmm) ${intensity * 35}%, transparent)` }}
+                  >
+                    {(v * 100).toFixed(0)}%
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -125,9 +180,9 @@ export function ModelPanels({ result, currentPrice, minutes }: Props) {
 function Panel({ title, subtitle, accent, children, full }: { title: string; subtitle?: string; accent: string; children: React.ReactNode; full?: boolean }) {
   return (
     <div className={`panel p-4 ${full ? "lg:col-span-2" : ""}`} style={{ borderTop: `2px solid ${accent}` }}>
-      <div className="flex items-baseline justify-between mb-2">
+      <div className="flex items-baseline justify-between mb-2 gap-2 flex-wrap">
         <h3 className="font-display font-semibold text-sm text-foreground">{title}</h3>
-        {subtitle && <span className="text-[10px] text-muted-foreground">{subtitle}</span>}
+        {subtitle && <span className="text-[10px] text-muted-foreground font-mono">{subtitle}</span>}
       </div>
       {children}
     </div>
@@ -140,45 +195,6 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-muted-foreground">{label}</span>
       <span className="font-mono text-foreground">{value}</span>
     </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-muted/40 rounded px-2 py-1.5">
-      <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</div>
-      <div className="font-mono text-sm text-foreground">{value}</div>
-    </div>
-  );
-}
-
-function QuantumDensityViz({ density, grid, current }: { density: number[]; grid: number[]; current: number }) {
-  const max = Math.max(...density);
-  const w = 100 / density.length;
-  // find current position
-  return (
-    <svg viewBox="0 0 100 50" className="w-full h-24" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="qd" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="oklch(0.72 0.22 305)" stopOpacity={0.9} />
-          <stop offset="100%" stopColor="oklch(0.65 0.22 305)" stopOpacity={0.1} />
-        </linearGradient>
-      </defs>
-      {density.map((p, i) => {
-        const h = (p / max) * 48;
-        return <rect key={i} x={i * w} y={50 - h} width={w * 0.95} height={h} fill="url(#qd)" />;
-      })}
-      {(() => {
-        // Find x for current
-        let idx = 0;
-        let best = Infinity;
-        for (let i = 0; i < grid.length; i++) {
-          const d = Math.abs(grid[i] - current);
-          if (d < best) { best = d; idx = i; }
-        }
-        return <line x1={idx * w} x2={idx * w} y1={0} y2={50} stroke="oklch(0.95 0.01 250)" strokeWidth={0.5} strokeDasharray="1 1" />;
-      })()}
-    </svg>
   );
 }
 
