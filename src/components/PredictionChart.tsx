@@ -70,7 +70,7 @@ export function PredictionChart({ history, prediction, currentPrice, minutesPerS
             borderRadius: 8,
             fontSize: 12,
           }}
-          formatter={(value: number, name: string) => [formatPrice(value), name]}
+          formatter={(value: any, name: any) => [typeof value === "number" ? formatPrice(value) : String(value), String(name)]}
         />
         <ReferenceLine y={currentPrice} stroke="oklch(0.72 0.18 230)" strokeDasharray="3 3" strokeOpacity={0.5} />
         {/* QSL band */}
