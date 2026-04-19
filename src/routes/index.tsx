@@ -252,6 +252,9 @@ function PredictionEngine() {
           )}
         </div>
 
+        {/* Demo trading */}
+        <DemoTrading coin={coin} currentPrice={currentPrice} prediction={prediction} />
+
         {/* Model panels */}
         {prediction && (
           <ModelPanels result={prediction} currentPrice={currentPrice} minutes={timeframe.minutes} />
