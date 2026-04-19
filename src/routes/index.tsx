@@ -111,13 +111,15 @@ function PredictionEngine() {
     return Array.from(buckets.entries()).sort((a, b) => a[0] - b[0]).map(([, p]) => p);
   }, [ticks]);
 
-  // Run hybrid prediction
+  // Run hybrid prediction — ONLY when a new 1-min bar closes (resampled.length
+  // changes) or when the user picks a different timeframe. We deliberately do
+  // NOT depend on `currentPrice` so the forecast does not jump on every tick.
   const prediction = useMemo(() => {
-    if (resampled.length < 12 || currentPrice === 0) return null;
-    // steps = horizon in minutes, capped to keep math stable
+    if (resampled.length < 12) return null;
     const steps = Math.min(timeframe.minutes, 200);
     return hybridPredict(resampled, steps);
-  }, [resampled, timeframe, currentPrice]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resampled.length, timeframe.id]);
 
   // Record predictions periodically + resolve old ones
   useEffect(() => {
