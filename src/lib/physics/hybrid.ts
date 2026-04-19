@@ -82,17 +82,21 @@ export function hybridPredict(prices: number[], steps: number): HybridResult {
 
   const weights = { arima: 0.45, hmm: 0.25, entropy: edge, hurst: hurstTrust };
 
+  // Build path keeping ARIMA wiggles intact. We split each step into
+  //   trend  = drift + HMM bias + Hamiltonian push   (cumulative)
+  //   wiggle = arimaPath[i] - last - i·driftPerStep   (the stochastic part)
+  // and dampen ONLY the trend, never the wiggle. This guarantees visible
+  // shocks regardless of entropy / Hurst values.
   const raw: number[] = [];
+  const trustTrend = (0.25 + 0.75 * edge) * hurstTrust;
   for (let i = 0; i < steps; i++) {
-    let price = arimaPath[i];
-    // HMM regime drift (cumulative, but capped by σ envelope below)
-    price += regimeBias * garch.sigma * 0.18 * (i + 1);
-    // Hamiltonian momentum push (small, cumulative)
-    price += hamPush * (i + 1) * 0.4;
-    // Combined damping: entropy edge × Hurst trust
-    const dev = price - last;
-    const trust = (0.25 + 0.75 * edge) * hurstTrust;
-    price = last + dev * trust;
+    const baseDrift = arima.driftPerStep * (i + 1);
+    const wiggle = arimaPath[i] - last - baseDrift; // pure stochastic component
+    let trend = baseDrift
+      + regimeBias * garch.sigma * 0.18 * (i + 1)
+      + hamPush * (i + 1) * 0.4;
+    trend *= trustTrend;
+    let price = last + trend + wiggle; // wiggle preserved at full amplitude
     // QSL hard clip
     const qslU = last + 2.4 * garch.sigma * Math.sqrt(i + 1);
     const qslL = last - 2.4 * garch.sigma * Math.sqrt(i + 1);
@@ -100,17 +104,7 @@ export function hybridPredict(prices: number[], steps: number): HybridResult {
     raw.push(price);
   }
 
-  // Light EMA smoothing pass — keeps wiggles but kills high-freq jitter.
-  const alpha = 0.55;
-  const smoothed: number[] = [];
-  let prev = last;
-  for (let i = 0; i < raw.length; i++) {
-    const s = alpha * raw[i] + (1 - alpha) * prev;
-    smoothed.push(s);
-    prev = s;
-  }
-
-  const forecast: ForecastPoint[] = smoothed.map((price, i) => {
+  const forecast: ForecastPoint[] = raw.map((price, i) => {
     const sigma = sigmas[i] || garch.sigma;
     const drift = arima.driftPerStep + regimeBias * garch.sigma * 0.1 + hamPush * 0.5;
     return {
