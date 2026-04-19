@@ -8,7 +8,7 @@ interface Props {
 }
 
 export function ModelPanels({ result, minutes }: Props) {
-  const { arima, garch, hmm, entropy, qsl, ssl } = result;
+  const { arima, garch, hmm, entropy, hurst, hamiltonian, qsl, ssl } = result;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -108,6 +108,46 @@ export function ModelPanels({ result, minutes }: Props) {
               ? "Medium — transitional, regime shifting."
               : "Low — trending, organized. Strong signal."}
         </div>
+      </Panel>
+
+      <Panel
+        title="Hurst Exponent"
+        accent="var(--entropy)"
+        subtitle="Trend persistence (R/S analysis)"
+      >
+        <div className="text-3xl font-display font-bold text-foreground">
+          H = {hurst.H.toFixed(3)}
+        </div>
+        <div className="text-xs text-muted-foreground mt-1 capitalize">
+          Regime: <span className="text-foreground font-semibold">{hurst.regime.replace("_", " ")}</span>
+        </div>
+        <div className="mt-2 h-1.5 bg-muted rounded overflow-hidden relative">
+          <div className="h-full" style={{ width: `${hurst.H * 100}%`, background: "var(--entropy)" }} />
+          <div className="absolute top-0 bottom-0 w-px bg-foreground/40" style={{ left: "50%" }} />
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
+          {hurst.H > 0.55
+            ? "Trending — ARIMA drift trusted, deviation kept."
+            : hurst.H < 0.45
+              ? "Mean-reverting — path pulled harder back to spot."
+              : "Random walk — limited predictability."}
+        </p>
+      </Panel>
+
+      <Panel
+        title="Hamiltonian Energy"
+        accent="var(--garch)"
+        subtitle="H = ½v² + ½(ΔP/P)²"
+      >
+        <Row label="Total energy H" value={hamiltonian.H.toExponential(2)} />
+        <Row label="Kinetic (velocity²)" value={hamiltonian.KE.toExponential(2)} />
+        <Row label="Potential (Δ from MA)" value={hamiltonian.PE.toExponential(2)} />
+        <Row label="Velocity (log-ret/step)" value={`${hamiltonian.velocity >= 0 ? "+" : ""}${(hamiltonian.velocity * 100).toFixed(3)}%`} />
+        <p className="text-[10px] text-muted-foreground mt-2 leading-relaxed">
+          {hamiltonian.KE > hamiltonian.PE
+            ? "High kinetic — strong momentum, room to run."
+            : "High potential — stretched from mean, reversion risk."}
+        </p>
       </Panel>
 
       <Panel
