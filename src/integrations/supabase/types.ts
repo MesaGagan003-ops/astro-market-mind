@@ -14,7 +14,191 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      model_weights: {
+        Row: {
+          arima_w: number
+          entropy_w: number
+          hmm_w: number
+          hurst_w: number
+          id: string
+          llm_w: number
+          market: string
+          recent_accuracy: number
+          recent_brier: number
+          samples: number
+          symbol: string
+          timeframe: string
+          updated_at: string
+        }
+        Insert: {
+          arima_w?: number
+          entropy_w?: number
+          hmm_w?: number
+          hurst_w?: number
+          id?: string
+          llm_w?: number
+          market: string
+          recent_accuracy?: number
+          recent_brier?: number
+          samples?: number
+          symbol: string
+          timeframe: string
+          updated_at?: string
+        }
+        Update: {
+          arima_w?: number
+          entropy_w?: number
+          hmm_w?: number
+          hurst_w?: number
+          id?: string
+          llm_w?: number
+          market?: string
+          recent_accuracy?: number
+          recent_brier?: number
+          samples?: number
+          symbol?: string
+          timeframe?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      news_sentiment_cache: {
+        Row: {
+          bias: number
+          cached_at: string
+          id: string
+          market: string
+          published_at: string | null
+          rationale: string | null
+          sentiment: number
+          source: string | null
+          symbol: string
+          title: string
+          url_hash: string
+        }
+        Insert: {
+          bias: number
+          cached_at?: string
+          id?: string
+          market: string
+          published_at?: string | null
+          rationale?: string | null
+          sentiment: number
+          source?: string | null
+          symbol: string
+          title: string
+          url_hash: string
+        }
+        Update: {
+          bias?: number
+          cached_at?: string
+          id?: string
+          market?: string
+          published_at?: string | null
+          rationale?: string | null
+          sentiment?: number
+          source?: string | null
+          symbol?: string
+          title?: string
+          url_hash?: string
+        }
+        Relationships: []
+      }
+      prediction_outcomes: {
+        Row: {
+          abs_error: number
+          actual_direction: string
+          actual_price: number
+          brier_score: number
+          direction_correct: boolean
+          id: string
+          pct_error: number
+          prediction_id: string
+          resolved_at: string
+        }
+        Insert: {
+          abs_error: number
+          actual_direction: string
+          actual_price: number
+          brier_score: number
+          direction_correct: boolean
+          id?: string
+          pct_error: number
+          prediction_id: string
+          resolved_at?: string
+        }
+        Update: {
+          abs_error?: number
+          actual_direction?: string
+          actual_price?: number
+          brier_score?: number
+          direction_correct?: boolean
+          id?: string
+          pct_error?: number
+          prediction_id?: string
+          resolved_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prediction_outcomes_prediction_id_fkey"
+            columns: ["prediction_id"]
+            isOneToOne: true
+            referencedRelation: "predictions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      predictions: {
+        Row: {
+          created_at: string
+          direction: string
+          features: Json | null
+          horizon_seconds: number
+          hybrid_confidence: number
+          id: string
+          llm_bias: number | null
+          market: string
+          predicted_price: number
+          resolves_at: string
+          spot_price: number
+          symbol: string
+          timeframe: string
+          weights: Json
+        }
+        Insert: {
+          created_at?: string
+          direction: string
+          features?: Json | null
+          horizon_seconds: number
+          hybrid_confidence: number
+          id?: string
+          llm_bias?: number | null
+          market: string
+          predicted_price: number
+          resolves_at: string
+          spot_price: number
+          symbol: string
+          timeframe: string
+          weights: Json
+        }
+        Update: {
+          created_at?: string
+          direction?: string
+          features?: Json | null
+          horizon_seconds?: number
+          hybrid_confidence?: number
+          id?: string
+          llm_bias?: number | null
+          market?: string
+          predicted_price?: number
+          resolves_at?: string
+          spot_price?: number
+          symbol?: string
+          timeframe?: string
+          weights?: Json
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
