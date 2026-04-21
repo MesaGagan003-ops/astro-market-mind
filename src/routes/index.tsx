@@ -27,13 +27,13 @@ import {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "QuantumEdge — Physics-based Crypto Prediction Engine" },
+      { title: "MIRO — Physics-based Market Prediction Engine" },
       {
         name: "description",
         content:
-          "Live crypto forecasting using ARIMA(1,1,1), GARCH(1,1), HMM, Shannon entropy, and Quantum + Stochastic Speed Limits.",
+          "Live market forecasting across crypto, NSE/BSE & Forex using ARIMA, GARCH, HMM, entropy, Hurst & Hamiltonian energy with adaptive learning.",
       },
-      { property: "og:title", content: "QuantumEdge — Physics Prediction Engine" },
+      { property: "og:title", content: "MIRO — Physics Prediction Engine" },
       {
         property: "og:description",
         content: "Hybrid physics + statistics model for live crypto prediction.",
@@ -154,12 +154,10 @@ function PredictionEngine() {
       <header className="border-b border-border backdrop-blur-md bg-background/70 sticky top-0 z-40">
         <div className="max-w-[1600px] mx-auto px-4 py-3 flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-primary to-accent glow-primary flex items-center justify-center font-display font-bold text-primary-foreground">
-              Q
-            </div>
+            <img src="/favicon.ico" alt="MIRO" className="w-8 h-8 rounded-md glow-primary" />
             <div>
               <h1 className="font-display font-bold text-lg leading-none text-gradient-primary">
-                QuantumEdge
+                MIRO
               </h1>
               <p className="text-[10px] text-muted-foreground leading-none mt-0.5">
                 physics-based prediction engine
