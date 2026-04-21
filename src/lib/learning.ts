@@ -71,8 +71,10 @@ export async function recordPredictionCloud(p: PredictionRecord): Promise<string
       market: p.market, symbol: p.symbol, timeframe: p.timeframe,
       spot_price: p.spotPrice, predicted_price: p.predictedPrice,
       direction: p.direction, horizon_seconds: p.horizonSeconds,
-      hybrid_confidence: p.hybridConfidence, weights: p.weights,
-      features: p.features ?? null, llm_bias: p.llmBias ?? null,
+      hybrid_confidence: p.hybridConfidence,
+      weights: p.weights as never,
+      features: (p.features ?? null) as never,
+      llm_bias: p.llmBias ?? null,
       resolves_at: new Date(Date.now() + p.horizonSeconds * 1000).toISOString(),
     }).select("id").single();
     if (error) throw error;
