@@ -23,6 +23,7 @@ import {
   resolvePredictions,
   type AccuracyStats,
 } from "@/lib/accuracy";
+import { recordPredictionCloud, resolvePendingPredictions, loadWeights } from "@/lib/learning";
 
 export const Route = createFileRoute("/")({
   head: () => ({
