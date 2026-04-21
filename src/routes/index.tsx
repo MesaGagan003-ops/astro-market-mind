@@ -123,13 +123,13 @@ function PredictionEngine() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resampled.length, timeframe.id]);
 
-  // Record predictions periodically + resolve old ones
+  // Record predictions periodically + resolve old ones (local + cloud learning)
   useEffect(() => {
     if (!prediction || currentPrice === 0) return;
     const now = Date.now();
-    // Re-resolve past predictions every tick
     resolvePredictions(currentPrice, now);
-    // Record a fresh prediction at most once per (timeframe length / 4), min 30s
+    // Cloud-side resolution + adaptive weight update (fire and forget)
+    void resolvePendingPredictions("crypto", coin.id, timeframe.id, currentPrice);
     const interval = Math.max(30_000, (timeframe.minutes * 60 * 1000) / 4);
     if (now - lastRecordRef.current > interval) {
       lastRecordRef.current = now;
@@ -143,6 +143,20 @@ function PredictionEngine() {
         predictedDirection: prediction.direction,
         hybridConfidence: prediction.hybridConfidence,
       });
+      // Persist to Lovable Cloud for the adaptive learning loop
+      void recordPredictionCloud({
+        market: "crypto",
+        symbol: coin.id,
+        timeframe: timeframe.id,
+        spotPrice: currentPrice,
+        predictedPrice: prediction.finalPrice,
+        direction: prediction.direction,
+        horizonSeconds: timeframe.minutes * 60,
+        hybridConfidence: prediction.hybridConfidence,
+        weights: prediction.weights,
+      });
+      // Warm cache for adaptive weights (used by future hybrid runs)
+      void loadWeights("crypto", coin.id, timeframe.id);
     }
     setStats(computeAccuracy(coin.id, timeframe.id));
   }, [prediction, currentPrice, coin.id, timeframe]);
