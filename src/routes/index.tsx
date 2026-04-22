@@ -10,6 +10,7 @@ import { NewsPanel } from "@/components/NewsPanel";
 import { ApiConnectPanel } from "@/components/ApiConnectPanel";
 import { ProviderHealthPanel, type ProviderHealthItem } from "@/components/ProviderHealthPanel";
 import { TrainerPanel } from "@/components/TrainerPanel";
+import { ComparisonPanel } from "@/components/ComparisonPanel";
 import { FEATURED_ASSETS, type MarketAsset } from "@/lib/markets";
 import { TIMEFRAMES, type Timeframe } from "@/lib/timeframes";
 import {
@@ -152,16 +153,22 @@ function PredictionEngine() {
     };
   }, [coin.market, coin.id, timeframe.id]);
 
-  // Build a 1-minute resampled price series for models
+  // Build a 1-minute resampled price series for models. If the live feed is
+  // sparse (e.g. CoinGecko 5s polling on a low-volume coin returns the same
+  // price for many seconds), the minute-bucket series collapses to too few
+  // unique points and ARIMA fits a flat line. In that case we fall back to
+  // the raw tick history so the model has enough variation to work with.
   const resampled = useMemo(() => {
     if (ticks.length === 0) return [] as number[];
-    // Bucket ticks by minute, take last price per bucket
     const buckets = new Map<number, number>();
     for (const t of ticks) {
       const bucket = Math.floor(t.ts / 60000);
       buckets.set(bucket, t.price);
     }
-    return Array.from(buckets.entries()).sort((a, b) => a[0] - b[0]).map(([, p]) => p);
+    const minuteSeries = Array.from(buckets.entries()).sort((a, b) => a[0] - b[0]).map(([, p]) => p);
+    if (minuteSeries.length >= 30) return minuteSeries;
+    // Sparse feed → use raw ticks (they still capture every observed price)
+    return ticks.map((t) => t.price);
   }, [ticks]);
 
   const modelSeries = useMemo(() => {
@@ -294,14 +301,11 @@ function PredictionEngine() {
       <header className="border-b border-border backdrop-blur-md bg-background/70 sticky top-0 z-40">
         <div className="max-w-[1600px] mx-auto px-4 py-3 flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
-            <img src="/favicon.ico" alt="MIRO" className="w-8 h-8 rounded-md glow-primary" />
+            <img src="/favicon.ico" alt="MIRO" className="w-9 h-9 rounded-full glow-primary object-cover border border-primary/40" />
             <div>
               <h1 className="font-display font-bold text-lg leading-none text-gradient-primary">
                 MIRO
               </h1>
-              <p className="text-[10px] text-muted-foreground leading-none mt-0.5">
-                physics-based prediction engine
-              </p>
             </div>
           </div>
           <div className="ml-auto flex items-center gap-3 flex-wrap">
@@ -424,6 +428,8 @@ function PredictionEngine() {
         )}
 
         <TrainerPanel market={coin.market} symbol={coin.id} timeframe={timeframe.id} />
+
+        <ComparisonPanel coin={coin} />
 
         {/* Footer note */}
         <div className="panel p-4 text-[11px] text-muted-foreground leading-relaxed">
