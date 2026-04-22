@@ -242,18 +242,40 @@ export async function fetchAssetHistory(asset: MarketAsset, limit = 240, opts?: 
   const tradingSymbol = asset.smartTradingSymbol ?? asset.symbol;
   const token = asset.smartToken ?? "";
   const cfg = opts?.runtimeConfig;
+  const hasSmartCreds = Boolean(cfg?.smartApiKey && cfg?.smartClientCode && cfg?.smartPassword);
 
-  return fetchSmartApiHistory({
-    data: {
-      exchange,
-      tradingSymbol,
-      token,
-      interval: "ONE_MINUTE",
-      limit,
-      smartApiKey: cfg?.smartApiKey,
-      smartClientCode: cfg?.smartClientCode,
-      smartPassword: cfg?.smartPassword,
-      smartTotp: cfg?.smartTotp,
-    },
-  });
+  if (!hasSmartCreds && asset.yahooSymbol) {
+    opts?.onStatus?.({ provider: `yahoo:${exchange}`, state: "fallback", detail: "history (no SmartAPI creds)" });
+    try {
+      return await fetchYahooHistory({ data: { symbol: asset.yahooSymbol, interval: "1m", range: "1d" } });
+    } catch {
+      return [];
+    }
+  }
+
+  try {
+    const rows = await fetchSmartApiHistory({
+      data: {
+        exchange,
+        tradingSymbol,
+        token,
+        interval: "ONE_MINUTE",
+        limit,
+        smartApiKey: cfg?.smartApiKey,
+        smartClientCode: cfg?.smartClientCode,
+        smartPassword: cfg?.smartPassword,
+        smartTotp: cfg?.smartTotp,
+      },
+    });
+    if (rows.length === 0 && asset.yahooSymbol) {
+      opts?.onStatus?.({ provider: `yahoo:${exchange}`, state: "fallback", detail: "smartapi empty" });
+      return await fetchYahooHistory({ data: { symbol: asset.yahooSymbol, interval: "1m", range: "1d" } });
+    }
+    return rows;
+  } catch {
+    if (asset.yahooSymbol) {
+      return await fetchYahooHistory({ data: { symbol: asset.yahooSymbol, interval: "1m", range: "1d" } });
+    }
+    return [];
+  }
 }
