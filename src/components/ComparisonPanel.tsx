@@ -189,7 +189,11 @@ export function ComparisonPanel({ coin }: Props) {
               />
               <Tooltip
                 labelFormatter={(v) => new Date(Number(v)).toLocaleString()}
-                formatter={(value: number | null) => (value == null ? "—" : value < 1 ? value.toExponential(3) : value.toFixed(4))}
+                formatter={(value) => {
+                  const n = Number(value);
+                  if (!Number.isFinite(n)) return "—";
+                  return n < 1 ? n.toExponential(3) : n.toFixed(4);
+                }}
                 contentStyle={{ background: "oklch(0.18 0.04 265)", border: "1px solid oklch(0.28 0.04 265)", fontSize: 11 }}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
