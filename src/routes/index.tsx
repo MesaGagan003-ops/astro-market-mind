@@ -153,16 +153,22 @@ function PredictionEngine() {
     };
   }, [coin.market, coin.id, timeframe.id]);
 
-  // Build a 1-minute resampled price series for models
+  // Build a 1-minute resampled price series for models. If the live feed is
+  // sparse (e.g. CoinGecko 5s polling on a low-volume coin returns the same
+  // price for many seconds), the minute-bucket series collapses to too few
+  // unique points and ARIMA fits a flat line. In that case we fall back to
+  // the raw tick history so the model has enough variation to work with.
   const resampled = useMemo(() => {
     if (ticks.length === 0) return [] as number[];
-    // Bucket ticks by minute, take last price per bucket
     const buckets = new Map<number, number>();
     for (const t of ticks) {
       const bucket = Math.floor(t.ts / 60000);
       buckets.set(bucket, t.price);
     }
-    return Array.from(buckets.entries()).sort((a, b) => a[0] - b[0]).map(([, p]) => p);
+    const minuteSeries = Array.from(buckets.entries()).sort((a, b) => a[0] - b[0]).map(([, p]) => p);
+    if (minuteSeries.length >= 30) return minuteSeries;
+    // Sparse feed → use raw ticks (they still capture every observed price)
+    return ticks.map((t) => t.price);
   }, [ticks]);
 
   const modelSeries = useMemo(() => {
