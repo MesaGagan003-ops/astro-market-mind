@@ -5,6 +5,7 @@
 import { fetchBinancePrice, fetchBinanceKlines } from "./binanceProxy";
 import { fetchSmartApiHistory, fetchSmartApiLtp } from "./angleOneSmartApi";
 import { fetchForexHistory, fetchForexPrice } from "./forexProxy";
+import { fetchYahooHistory } from "./yahooProxy";
 import type { MarketAsset } from "./markets";
 import type { RuntimeConfig } from "./runtimeConfig";
 
@@ -94,6 +95,34 @@ export async function fetchCoinGeckoHistory(coinId: string, days = 1): Promise<T
   } catch {
     return [];
   }
+}
+
+// Yahoo-based polling fallback for any asset that has a yahooSymbol.
+// Used when SmartAPI credentials are missing for NSE/BSE.
+function subscribeYahoo(symbol: string, onTick: TickHandler): () => void {
+  let stopped = false;
+  let lastTs = 0;
+  const poll = async () => {
+    while (!stopped) {
+      try {
+        const rows = await fetchYahooHistory({
+          data: { symbol, interval: "1m", range: "1d" },
+        });
+        const last = rows[rows.length - 1];
+        if (last && last.ts !== lastTs) {
+          lastTs = last.ts;
+          onTick({ ts: Date.now(), price: last.price });
+        } else if (last) {
+          onTick({ ts: Date.now(), price: last.price });
+        }
+      } catch {}
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  };
+  poll();
+  return () => {
+    stopped = true;
+  };
 }
 
 export function subscribeAsset(asset: MarketAsset, onTick: TickHandler, opts?: StreamOptions): () => void {
