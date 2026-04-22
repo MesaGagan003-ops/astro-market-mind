@@ -162,6 +162,19 @@ export function subscribeAsset(asset: MarketAsset, onTick: TickHandler, opts?: S
   const tradingSymbol = asset.smartTradingSymbol ?? asset.symbol;
   const token = asset.smartToken ?? "";
   const cfg = opts?.runtimeConfig;
+
+  // Fallback to Yahoo polling when SmartAPI credentials are missing.
+  // This gives free (delayed) tick-like data for any NSE/BSE asset.
+  const hasSmartCreds = Boolean(cfg?.smartApiKey && cfg?.smartClientCode && cfg?.smartPassword);
+  if (!hasSmartCreds) {
+    if (asset.yahooSymbol) {
+      opts?.onStatus?.({ provider: `yahoo:${exchange}`, state: "fallback", detail: "no SmartAPI creds" });
+      return subscribeYahoo(asset.yahooSymbol, onTick);
+    }
+    opts?.onStatus?.({ provider: `smartapi:${exchange}`, state: "failing", detail: "no creds, no yahoo symbol" });
+    return () => {};
+  }
+
   let stopped = false;
   const poll = async () => {
     while (!stopped) {
@@ -180,6 +193,14 @@ export function subscribeAsset(asset: MarketAsset, onTick: TickHandler, opts?: S
         if (t.price > 0) {
           onTick(t);
           opts?.onStatus?.({ provider: `smartapi:${exchange}`, state: "live" });
+        } else if (asset.yahooSymbol) {
+          // SmartAPI returned empty — fall back to Yahoo for this poll
+          const rows = await fetchYahooHistory({ data: { symbol: asset.yahooSymbol, interval: "1m", range: "1d" } });
+          const last = rows[rows.length - 1];
+          if (last) {
+            onTick({ ts: Date.now(), price: last.price });
+            opts?.onStatus?.({ provider: `yahoo:${exchange}`, state: "fallback", detail: "smartapi empty" });
+          }
         } else {
           opts?.onStatus?.({ provider: `smartapi:${exchange}`, state: "failing", detail: "No LTP" });
         }
