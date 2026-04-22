@@ -2,7 +2,7 @@
 // Mirrors the "Place Trade" + Positions/Log/Stats panel from the v2 mockup.
 
 import { useEffect, useMemo, useState } from "react";
-import type { Coin } from "@/lib/coins";
+import type { MarketAsset } from "@/lib/markets";
 import type { HybridResult } from "@/lib/physics/hybrid";
 
 type Direction = "long" | "short";
@@ -71,7 +71,7 @@ function fmtPrice(v: number): string {
 }
 
 interface Props {
-  coin: Coin;
+  coin: MarketAsset;
   currentPrice: number;
   prediction: HybridResult | null;
 }
@@ -115,7 +115,7 @@ export function DemoTrading({ coin, currentPrice, prediction }: Props) {
     if (entry <= 0 || size <= 0) return;
     const pos: Position = {
       id: Date.now(),
-      pair: `${coin.symbol}/USDT`,
+      pair: coin.symbol.toUpperCase().includes("/") ? coin.symbol.toUpperCase() : coin.symbol.toUpperCase(),
       dir: direction,
       entry,
       size,

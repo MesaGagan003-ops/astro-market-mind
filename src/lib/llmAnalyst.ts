@@ -10,6 +10,7 @@ interface AnalystInput {
   spotPrice: number;
   recentReturnPct: number;
   newsTitles: string[];
+  apiKey?: string;
 }
 
 export interface AnalystOutput {
@@ -21,7 +22,7 @@ export interface AnalystOutput {
 export const llmAnalyst = createServerFn({ method: "POST" })
   .inputValidator((d: AnalystInput) => d)
   .handler(async ({ data }): Promise<AnalystOutput> => {
-    const key = process.env.LOVABLE_API_KEY;
+    const key = data.apiKey || process.env.LOVABLE_API_KEY;
     if (!key) return { bias: 0, confidence: 0, rationale: "LLM key missing" };
 
     const news = data.newsTitles.slice(0, 8).map((t, i) => `${i + 1}. ${t}`).join("\n");

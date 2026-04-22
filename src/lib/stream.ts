@@ -3,6 +3,10 @@
 // a TanStack Start server function and poll at ~1s for near-tick cadence.
 
 import { fetchBinancePrice, fetchBinanceKlines } from "./binanceProxy";
+import { fetchSmartApiHistory, fetchSmartApiLtp } from "./angleOneSmartApi";
+import { fetchForexHistory, fetchForexPrice } from "./forexProxy";
+import type { MarketAsset } from "./markets";
+import type { RuntimeConfig } from "./runtimeConfig";
 
 export interface Tick {
   price: number;
@@ -11,6 +15,13 @@ export interface Tick {
 }
 
 export type TickHandler = (tick: Tick) => void;
+export type ProviderState = "live" | "fallback" | "failing";
+export type ProviderStatusHandler = (status: { provider: string; state: ProviderState; detail?: string }) => void;
+
+interface StreamOptions {
+  runtimeConfig?: RuntimeConfig;
+  onStatus?: ProviderStatusHandler;
+}
 
 export function subscribeBinance(symbol: string, onTick: TickHandler): () => void {
   let stopped = false;
@@ -83,4 +94,116 @@ export async function fetchCoinGeckoHistory(coinId: string, days = 1): Promise<T
   } catch {
     return [];
   }
+}
+
+export function subscribeAsset(asset: MarketAsset, onTick: TickHandler, opts?: StreamOptions): () => void {
+  if (asset.market === "crypto") {
+    opts?.onStatus?.({ provider: asset.binanceSymbol ? "binance" : "coingecko", state: "live" });
+    if (asset.binanceSymbol) return subscribeBinance(asset.binanceSymbol, onTick);
+    return subscribeCoinGecko(asset.id, onTick);
+  }
+
+  if (asset.market === "forex") {
+    const base = asset.forexBase ?? "EUR";
+    const quote = asset.forexQuote ?? "USD";
+    const mode = opts?.runtimeConfig?.forexMode ?? "auto";
+    const premiumApiKey = opts?.runtimeConfig?.forexPremiumApiKey ?? "";
+    let stopped = false;
+    const poll = async () => {
+      while (!stopped) {
+        try {
+          const t = await fetchForexPrice({ data: { base, quote, mode, premiumApiKey } });
+          if (t.price > 0) {
+            onTick(t);
+            opts?.onStatus?.({ provider: `forex:${(t as { provider?: string }).provider ?? "frankfurter"}`, state: mode === "auto" && (t as { provider?: string }).provider === "frankfurter" ? "fallback" : "live" });
+          }
+        } catch (e) {
+          opts?.onStatus?.({ provider: "forex", state: "failing", detail: String((e as Error)?.message ?? e) });
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    };
+    poll();
+    return () => {
+      stopped = true;
+    };
+  }
+
+  const exchange = asset.smartExchange ?? (asset.market === "bse" ? "BSE" : "NSE");
+  const tradingSymbol = asset.smartTradingSymbol ?? asset.symbol;
+  const token = asset.smartToken ?? "";
+  const cfg = opts?.runtimeConfig;
+  let stopped = false;
+  const poll = async () => {
+    while (!stopped) {
+      try {
+        const t = await fetchSmartApiLtp({
+          data: {
+            exchange,
+            tradingSymbol,
+            token,
+            smartApiKey: cfg?.smartApiKey,
+            smartClientCode: cfg?.smartClientCode,
+            smartPassword: cfg?.smartPassword,
+            smartTotp: cfg?.smartTotp,
+          },
+        });
+        if (t.price > 0) {
+          onTick(t);
+          opts?.onStatus?.({ provider: `smartapi:${exchange}`, state: "live" });
+        } else {
+          opts?.onStatus?.({ provider: `smartapi:${exchange}`, state: "failing", detail: "No LTP" });
+        }
+      } catch (e) {
+        opts?.onStatus?.({ provider: `smartapi:${exchange}`, state: "failing", detail: String((e as Error)?.message ?? e) });
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  };
+  poll();
+  return () => {
+    stopped = true;
+  };
+}
+
+export async function fetchAssetHistory(asset: MarketAsset, limit = 240, opts?: StreamOptions): Promise<Tick[]> {
+  if (asset.market === "crypto") {
+    opts?.onStatus?.({ provider: asset.binanceSymbol ? "binance" : "coingecko", state: "live", detail: "history" });
+    if (asset.binanceSymbol) return fetchBinanceHistory(asset.binanceSymbol, "1m", limit);
+    return fetchCoinGeckoHistory(asset.id, 1);
+  }
+
+  if (asset.market === "forex") {
+    const base = asset.forexBase ?? "EUR";
+    const quote = asset.forexQuote ?? "USD";
+    const mode = opts?.runtimeConfig?.forexMode ?? "auto";
+    const premiumApiKey = opts?.runtimeConfig?.forexPremiumApiKey ?? "";
+    try {
+      const rows = await fetchForexHistory({ data: { base, quote, limit, mode, premiumApiKey } });
+      opts?.onStatus?.({ provider: "forex-history", state: "live" });
+      return rows;
+    } catch (e) {
+      opts?.onStatus?.({ provider: "forex-history", state: "failing", detail: String((e as Error)?.message ?? e) });
+      return [];
+    }
+  }
+
+  const exchange = asset.smartExchange ?? (asset.market === "bse" ? "BSE" : "NSE");
+  const tradingSymbol = asset.smartTradingSymbol ?? asset.symbol;
+  const token = asset.smartToken ?? "";
+  const cfg = opts?.runtimeConfig;
+
+  return fetchSmartApiHistory({
+    data: {
+      exchange,
+      tradingSymbol,
+      token,
+      interval: "ONE_MINUTE",
+      limit,
+      smartApiKey: cfg?.smartApiKey,
+      smartClientCode: cfg?.smartClientCode,
+      smartPassword: cfg?.smartPassword,
+      smartTotp: cfg?.smartTotp,
+    },
+  });
 }

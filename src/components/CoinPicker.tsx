@@ -1,20 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { loadAllCoins, FEATURED_COINS, type Coin } from "@/lib/coins";
+import { loadAllAssets, FEATURED_ASSETS, marketLabel, type MarketAsset } from "@/lib/markets";
 
 interface Props {
-  value: Coin;
-  onChange: (coin: Coin) => void;
+  value: MarketAsset;
+  onChange: (coin: MarketAsset) => void;
 }
 
 export function CoinPicker({ value, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [coins, setCoins] = useState<Coin[]>(FEATURED_COINS);
+  const [coins, setCoins] = useState<MarketAsset[]>(FEATURED_ASSETS);
   const [loaded, setLoaded] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    loadAllCoins().then((all) => {
+    loadAllAssets().then((all) => {
       setCoins(all);
       setLoaded(true);
     });
@@ -66,11 +66,9 @@ export function CoinPicker({ value, onChange }: Props) {
               >
                 <span className="font-mono font-semibold w-16 text-foreground">{c.symbol.toUpperCase()}</span>
                 <span className="text-muted-foreground truncate flex-1">{c.name}</span>
-                {c.binanceSymbol ? (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-bull/15 text-bull">TICK</span>
-                ) : (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">5s</span>
-                )}
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                  {marketLabel(c.market)}
+                </span>
               </button>
             ))}
             {filtered.length === 0 && (

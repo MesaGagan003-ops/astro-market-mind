@@ -11,12 +11,12 @@ import {
   ComposedChart, Line, Area, XAxis, YAxis, ResponsiveContainer,
   ReferenceLine, Tooltip, CartesianGrid,
 } from "recharts";
-import type { Coin } from "@/lib/coins";
+import type { MarketAsset } from "@/lib/markets";
 import type { HybridResult } from "@/lib/physics/hybrid";
 import { fetchCoinNews, buildSentiment, type NewsSentiment } from "@/lib/news";
 
 interface Props {
-  coin: Coin;
+  coin: MarketAsset;
   prediction: HybridResult | null;
   currentPrice: number;
   history: { ts: number; price: number }[];

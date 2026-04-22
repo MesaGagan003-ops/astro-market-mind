@@ -7,13 +7,15 @@ import { ModelPanels } from "@/components/ModelPanels";
 import { AccuracyTracker } from "@/components/AccuracyTracker";
 import { DemoTrading } from "@/components/DemoTrading";
 import { NewsPanel } from "@/components/NewsPanel";
-import { FEATURED_COINS, type Coin } from "@/lib/coins";
+import { ApiConnectPanel } from "@/components/ApiConnectPanel";
+import { ProviderHealthPanel, type ProviderHealthItem } from "@/components/ProviderHealthPanel";
+import { TrainerPanel } from "@/components/TrainerPanel";
+import { FEATURED_ASSETS, type MarketAsset } from "@/lib/markets";
 import { TIMEFRAMES, type Timeframe } from "@/lib/timeframes";
 import {
-  subscribeBinance,
-  subscribeCoinGecko,
-  fetchBinanceHistory,
-  fetchCoinGeckoHistory,
+  subscribeAsset,
+  fetchAssetHistory,
+  type ProviderStatusHandler,
   type Tick,
 } from "@/lib/stream";
 import { hybridPredict } from "@/lib/physics/hybrid";
@@ -24,6 +26,11 @@ import {
   type AccuracyStats,
 } from "@/lib/accuracy";
 import { recordPredictionCloud, resolvePendingPredictions, loadWeights } from "@/lib/learning";
+import type { AdaptiveWeights } from "@/lib/learning";
+import { llmAnalyst } from "@/lib/llmAnalyst";
+import { fetchCoinNews } from "@/lib/news";
+import { DEFAULT_RUNTIME_CONFIG, loadRuntimeConfig, saveRuntimeConfig, type RuntimeConfig } from "@/lib/runtimeConfig";
+import { fetchYahooHistory } from "@/lib/yahooProxy";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -45,12 +52,37 @@ export const Route = createFileRoute("/")({
 });
 
 function PredictionEngine() {
-  const [coin, setCoin] = useState<Coin>(FEATURED_COINS[0]);
+  const [coin, setCoin] = useState<MarketAsset>(FEATURED_ASSETS[0]);
   const [timeframe, setTimeframe] = useState<Timeframe>(TIMEFRAMES[2]); // 10m default
   const [ticks, setTicks] = useState<Tick[]>([]);
   const [currentPrice, setCurrentPrice] = useState<number>(0);
-  const [stats, setStats] = useState<AccuracyStats>(() => computeAccuracy(coin.id, timeframe.id));
+  const [stats, setStats] = useState<AccuracyStats>(() => computeAccuracy(`${coin.market}:${coin.id}`, timeframe.id));
+  const [runtimeConfig, setRuntimeConfig] = useState<RuntimeConfig>(() => loadRuntimeConfig());
+  const [providerHealth, setProviderHealth] = useState<Record<string, ProviderHealthItem>>({});
+  const [yahooTrain, setYahooTrain] = useState<number[]>([]);
+  const [adaptive, setAdaptive] = useState<AdaptiveWeights | null>(null);
+  const [llmSignal, setLlmSignal] = useState<{ bias: number; confidence: number; rationale: string }>({
+    bias: 0,
+    confidence: 0,
+    rationale: "",
+  });
   const lastRecordRef = useRef<number>(0);
+  const lastLlmRef = useRef<number>(0);
+
+  const onStatus = useMemo<ProviderStatusHandler>(() => {
+    return (s) => {
+      setProviderHealth((prev) => ({
+        ...prev,
+        [s.provider]: {
+          key: s.provider,
+          provider: s.provider,
+          state: s.state,
+          detail: s.detail,
+          updatedAt: Date.now(),
+        },
+      }));
+    };
+  }, []);
 
   // Load history + subscribe live
   useEffect(() => {
@@ -59,12 +91,7 @@ function PredictionEngine() {
     setCurrentPrice(0);
 
     const init = async () => {
-      let hist: Tick[] = [];
-      if (coin.binanceSymbol) {
-        hist = await fetchBinanceHistory(coin.binanceSymbol, "1m", 240);
-      } else {
-        hist = await fetchCoinGeckoHistory(coin.id, 1);
-      }
+      let hist: Tick[] = await fetchAssetHistory(coin, 240, { runtimeConfig, onStatus });
       if (cancelled) return;
       // downsample if too many
       if (hist.length > 240) {
@@ -77,29 +104,53 @@ function PredictionEngine() {
 
     init();
 
-    let unsub: (() => void) | null = null;
-    if (coin.binanceSymbol) {
-      unsub = subscribeBinance(coin.binanceSymbol, (t) => {
-        setCurrentPrice(t.price);
-        setTicks((prev) => {
-          const next = [...prev, t];
-          // cap memory
-          if (next.length > 800) next.splice(0, next.length - 800);
-          return next;
-        });
-      });
-    } else {
-      unsub = subscribeCoinGecko(coin.id, (t) => {
-        setCurrentPrice(t.price);
-        setTicks((prev) => [...prev.slice(-799), t]);
-      });
-    }
+    const unsub = subscribeAsset(coin, (t) => {
+      setCurrentPrice(t.price);
+      setTicks((prev) => [...prev.slice(-799), t]);
+    }, { runtimeConfig, onStatus });
 
     return () => {
       cancelled = true;
       unsub?.();
     };
-  }, [coin]);
+  }, [coin, runtimeConfig, onStatus]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadYahoo = async () => {
+      if (!coin.yahooSymbol) {
+        setYahooTrain([]);
+        return;
+      }
+      const rows = await fetchYahooHistory({
+        data: {
+          symbol: coin.yahooSymbol,
+          interval: "1m",
+          range: "7d",
+        },
+      });
+      if (cancelled) return;
+      setYahooTrain(rows.map((r) => r.price).slice(-300));
+      onStatus({ provider: "yfinance", state: rows.length > 0 ? "live" : "failing", detail: rows.length > 0 ? "history" : "empty" });
+    };
+    void loadYahoo();
+    const id = setInterval(loadYahoo, 5 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [coin.yahooSymbol, onStatus]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAdaptive(null);
+    void loadWeights(coin.market, coin.id, timeframe.id).then((w) => {
+      if (!cancelled) setAdaptive(w);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [coin.market, coin.id, timeframe.id]);
 
   // Build a 1-minute resampled price series for models
   const resampled = useMemo(() => {
@@ -113,15 +164,67 @@ function PredictionEngine() {
     return Array.from(buckets.entries()).sort((a, b) => a[0] - b[0]).map(([, p]) => p);
   }, [ticks]);
 
+  const modelSeries = useMemo(() => {
+    if (yahooTrain.length < 30) return resampled;
+    const merged = [...yahooTrain.slice(-300), ...resampled.slice(-300)];
+    return merged.slice(-500);
+  }, [resampled, yahooTrain]);
+
   // Run hybrid prediction — ONLY when a new 1-min bar closes (resampled.length
   // changes) or when the user picks a different timeframe. We deliberately do
   // NOT depend on `currentPrice` so the forecast does not jump on every tick.
   const prediction = useMemo(() => {
-    if (resampled.length < 12) return null;
+    if (modelSeries.length < 12) return null;
     const steps = Math.min(timeframe.minutes, 200);
-    return hybridPredict(resampled, steps);
+    return hybridPredict(modelSeries, steps, {
+      adaptiveWeights: adaptive
+        ? {
+            arima: adaptive.arima,
+            hmm: adaptive.hmm,
+            entropy: adaptive.entropy,
+            hurst: adaptive.hurst,
+            llm: adaptive.llm,
+          }
+        : undefined,
+      llmBias: llmSignal.bias,
+      llmConfidence: llmSignal.confidence,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resampled.length, timeframe.id]);
+  }, [modelSeries, timeframe.id, adaptive, llmSignal.bias, llmSignal.confidence]);
+
+  useEffect(() => {
+    const now = Date.now();
+    if (modelSeries.length < 20 || currentPrice <= 0) return;
+    if (now - lastLlmRef.current < 60_000) return;
+    lastLlmRef.current = now;
+
+    const recentBase = modelSeries[Math.max(0, modelSeries.length - 15)] || currentPrice;
+    const recentReturnPct = ((currentPrice - recentBase) / Math.max(1e-9, recentBase)) * 100;
+
+    const run = async () => {
+      let titles: string[] = [];
+      if (coin.market === "crypto") {
+        try {
+          const news = await fetchCoinNews({ data: { symbol: coin.symbol.toUpperCase() } });
+          titles = (news.items ?? []).slice(0, 8).map((i) => i.title);
+        } catch {
+          titles = [];
+        }
+      }
+      const out = await llmAnalyst({
+        data: {
+          market: coin.market,
+          symbol: coin.symbol,
+          spotPrice: currentPrice,
+          recentReturnPct,
+          newsTitles: titles,
+          apiKey: runtimeConfig.llmApiKey || undefined,
+        },
+      });
+      setLlmSignal(out);
+    };
+    void run();
+  }, [coin.market, coin.symbol, modelSeries, currentPrice, runtimeConfig.llmApiKey]);
 
   // Record predictions periodically + resolve old ones (local + cloud learning)
   useEffect(() => {
@@ -129,12 +232,12 @@ function PredictionEngine() {
     const now = Date.now();
     resolvePredictions(currentPrice, now);
     // Cloud-side resolution + adaptive weight update (fire and forget)
-    void resolvePendingPredictions("crypto", coin.id, timeframe.id, currentPrice);
+    void resolvePendingPredictions(coin.market, coin.id, timeframe.id, currentPrice);
     const interval = Math.max(30_000, (timeframe.minutes * 60 * 1000) / 4);
     if (now - lastRecordRef.current > interval) {
       lastRecordRef.current = now;
       recordPrediction({
-        coinId: coin.id,
+        coinId: `${coin.market}:${coin.id}`,
         timeframeId: timeframe.id,
         startTs: now,
         resolveTs: now + timeframe.minutes * 60 * 1000,
@@ -145,7 +248,7 @@ function PredictionEngine() {
       });
       // Persist to Lovable Cloud for the adaptive learning loop
       void recordPredictionCloud({
-        market: "crypto",
+        market: coin.market,
         symbol: coin.id,
         timeframe: timeframe.id,
         spotPrice: currentPrice,
@@ -154,14 +257,36 @@ function PredictionEngine() {
         horizonSeconds: timeframe.minutes * 60,
         hybridConfidence: prediction.hybridConfidence,
         weights: prediction.weights,
+        llmBias: llmSignal.bias,
+        features: {
+          llmConfidence: llmSignal.confidence,
+          llmRationale: llmSignal.rationale,
+          market: coin.market,
+        },
       });
       // Warm cache for adaptive weights (used by future hybrid runs)
-      void loadWeights("crypto", coin.id, timeframe.id);
+      void loadWeights(coin.market, coin.id, timeframe.id).then(setAdaptive);
     }
-    setStats(computeAccuracy(coin.id, timeframe.id));
-  }, [prediction, currentPrice, coin.id, timeframe]);
+    setStats(computeAccuracy(`${coin.market}:${coin.id}`, timeframe.id));
+  }, [prediction, currentPrice, coin.id, coin.market, timeframe, llmSignal]);
 
   const minutesPerStep = Math.max(1, timeframe.minutes / Math.min(timeframe.minutes, 200));
+  const healthItems = useMemo(() => Object.values(providerHealth).sort((a, b) => a.provider.localeCompare(b.provider)), [providerHealth]);
+
+  const handleConnect = async (cfg: RuntimeConfig) => {
+    setRuntimeConfig(cfg);
+    saveRuntimeConfig(cfg);
+    setProviderHealth((prev) => ({
+      ...prev,
+      credentials: {
+        key: "credentials",
+        provider: "credentials",
+        state: "live",
+        detail: "saved",
+        updatedAt: Date.now(),
+      },
+    }));
+  };
 
   return (
     <div className="min-h-screen relative z-10">
@@ -184,7 +309,13 @@ function PredictionEngine() {
             <div className="flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-md">
               <span className="live-dot" />
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                {coin.binanceSymbol ? "Binance tick" : "5s poll"}
+                {coin.market === "crypto"
+                  ? coin.binanceSymbol
+                    ? "Binance tick"
+                    : "5s poll"
+                  : coin.market === "forex"
+                    ? "Forex poll"
+                    : "SmartAPI poll"}
               </span>
               <span className="font-mono font-bold text-foreground">
                 {currentPrice > 0 ? `$${formatLive(currentPrice)}` : "—"}
@@ -202,6 +333,13 @@ function PredictionEngine() {
 
       {/* Main */}
       <main className="max-w-[1600px] mx-auto px-4 py-4 space-y-4">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <div className="xl:col-span-2">
+            <ApiConnectPanel value={runtimeConfig || DEFAULT_RUNTIME_CONFIG} onConnect={handleConnect} />
+          </div>
+          <ProviderHealthPanel items={healthItems} />
+        </div>
+
         {/* Top: chart + accuracy */}
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4">
           <div className="panel p-4 scan-line">
@@ -284,6 +422,8 @@ function PredictionEngine() {
         {prediction && (
           <ModelPanels result={prediction} currentPrice={currentPrice} minutes={timeframe.minutes} />
         )}
+
+        <TrainerPanel market={coin.market} symbol={coin.id} timeframe={timeframe.id} />
 
         {/* Footer note */}
         <div className="panel p-4 text-[11px] text-muted-foreground leading-relaxed">

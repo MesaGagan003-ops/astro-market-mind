@@ -42,10 +42,16 @@ export interface HybridResult {
   finalPrice: number;
   direction: "up" | "down" | "flat";
   hybridConfidence: number;
-  weights: { arima: number; hmm: number; entropy: number; hurst: number };
+  weights: { arima: number; hmm: number; entropy: number; hurst: number; llm: number };
 }
 
-export function hybridPredict(prices: number[], steps: number): HybridResult {
+export interface HybridOptions {
+  adaptiveWeights?: Partial<{ arima: number; hmm: number; entropy: number; hurst: number; llm: number }>;
+  llmBias?: number;
+  llmConfidence?: number;
+}
+
+export function hybridPredict(prices: number[], steps: number, options?: HybridOptions): HybridResult {
   const arima = fitArima111(prices);
   const garch = fitGarch11(prices);
   const hmm = fitHmm3(prices);
@@ -80,7 +86,24 @@ export function hybridPredict(prices: number[], steps: number): HybridResult {
     steps,
   );
 
-  const weights = { arima: 0.45, hmm: 0.25, entropy: edge, hurst: hurstTrust };
+  const llmBias = Math.max(-1, Math.min(1, Number(options?.llmBias ?? 0)));
+  const llmConfidence = Math.max(0, Math.min(1, Number(options?.llmConfidence ?? 0)));
+
+  const learned = {
+    arima: Math.max(0.05, Number(options?.adaptiveWeights?.arima ?? 0.45)),
+    hmm: Math.max(0.05, Number(options?.adaptiveWeights?.hmm ?? 0.25)),
+    entropy: Math.max(0.05, Number(options?.adaptiveWeights?.entropy ?? edge)),
+    hurst: Math.max(0.05, Number(options?.adaptiveWeights?.hurst ?? hurstTrust)),
+    llm: Math.max(0, Number(options?.adaptiveWeights?.llm ?? 0.05)),
+  };
+  const learnedSum = learned.arima + learned.hmm + learned.entropy + learned.hurst + learned.llm;
+  const weights = {
+    arima: learned.arima / learnedSum,
+    hmm: learned.hmm / learnedSum,
+    entropy: learned.entropy / learnedSum,
+    hurst: learned.hurst / learnedSum,
+    llm: learned.llm / learnedSum,
+  };
 
   // Build path keeping ARIMA wiggles intact. We split each step into
   //   trend  = drift + HMM bias + Hamiltonian push   (cumulative)
@@ -94,7 +117,8 @@ export function hybridPredict(prices: number[], steps: number): HybridResult {
     const wiggle = arimaPath[i] - last - baseDrift; // pure stochastic component
     let trend = baseDrift
       + regimeBias * garch.sigma * 0.18 * (i + 1)
-      + hamPush * (i + 1) * 0.4;
+      + hamPush * (i + 1) * 0.4
+      + llmBias * llmConfidence * weights.llm * garch.sigma * 0.2 * (i + 1);
     trend *= trustTrend;
     let price = last + trend + wiggle; // wiggle preserved at full amplitude
     // QSL hard clip
@@ -130,7 +154,7 @@ export function hybridPredict(prices: number[], steps: number): HybridResult {
     hmm.stateProbs[1];
   const hurstAgrees = hurst.regime === "trending" ? 1 : hurst.regime === "random" ? 0.5 : 0.3;
   const hybridConfidence = Math.max(0, Math.min(1,
-    0.3 * edge + 0.25 * hmm.confidence + 0.25 * regimeAgrees + 0.2 * hurstAgrees,
+    0.28 * edge + 0.24 * hmm.confidence + 0.24 * regimeAgrees + 0.18 * hurstAgrees + 0.06 * llmConfidence,
   ));
 
   return {
