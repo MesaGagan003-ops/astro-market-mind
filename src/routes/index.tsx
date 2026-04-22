@@ -10,6 +10,7 @@ import { NewsPanel } from "@/components/NewsPanel";
 import { ApiConnectPanel } from "@/components/ApiConnectPanel";
 import { ProviderHealthPanel, type ProviderHealthItem } from "@/components/ProviderHealthPanel";
 import { TrainerPanel } from "@/components/TrainerPanel";
+import { ComparisonPanel } from "@/components/ComparisonPanel";
 import { FEATURED_ASSETS, type MarketAsset } from "@/lib/markets";
 import { TIMEFRAMES, type Timeframe } from "@/lib/timeframes";
 import {
@@ -294,14 +295,11 @@ function PredictionEngine() {
       <header className="border-b border-border backdrop-blur-md bg-background/70 sticky top-0 z-40">
         <div className="max-w-[1600px] mx-auto px-4 py-3 flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
-            <img src="/favicon.ico" alt="MIRO" className="w-8 h-8 rounded-md glow-primary" />
+            <img src="/favicon.ico" alt="MIRO" className="w-9 h-9 rounded-full glow-primary object-cover border border-primary/40" />
             <div>
               <h1 className="font-display font-bold text-lg leading-none text-gradient-primary">
                 MIRO
               </h1>
-              <p className="text-[10px] text-muted-foreground leading-none mt-0.5">
-                physics-based prediction engine
-              </p>
             </div>
           </div>
           <div className="ml-auto flex items-center gap-3 flex-wrap">
@@ -424,6 +422,8 @@ function PredictionEngine() {
         )}
 
         <TrainerPanel market={coin.market} symbol={coin.id} timeframe={timeframe.id} />
+
+        <ComparisonPanel coin={coin} />
 
         {/* Footer note */}
         <div className="panel p-4 text-[11px] text-muted-foreground leading-relaxed">
