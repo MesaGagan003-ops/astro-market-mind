@@ -28,10 +28,14 @@ import {
 } from "@/lib/accuracy";
 import { recordPredictionCloud, resolvePendingPredictions, loadWeights } from "@/lib/learning";
 import type { AdaptiveWeights } from "@/lib/learning";
-import { llmAnalyst } from "@/lib/llmAnalyst";
+import { getDecayedLlmSignal } from "@/lib/llmCache";
 import { fetchCoinNews } from "@/lib/news";
 import { DEFAULT_RUNTIME_CONFIG, loadRuntimeConfig, saveRuntimeConfig, type RuntimeConfig } from "@/lib/runtimeConfig";
 import { fetchYahooHistory } from "@/lib/yahooProxy";
+import { CalibrationPanel } from "@/components/CalibrationPanel";
+import { WalkForwardPanel } from "@/components/WalkForwardPanel";
+import { PerformanceTable } from "@/components/PerformanceTable";
+import { DisclaimerModal, DisclaimerBanner, DisclaimerFooter } from "@/components/Disclaimer";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -218,17 +222,17 @@ function PredictionEngine() {
           titles = [];
         }
       }
-      const out = await llmAnalyst({
-        data: {
-          market: coin.market,
-          symbol: coin.symbol,
-          spotPrice: currentPrice,
-          recentReturnPct,
-          newsTitles: titles,
-          apiKey: runtimeConfig.llmApiKey || undefined,
-        },
+      // Cached + time-decayed bias: avoids re-calling LLM every minute and
+      // ensures stale news fades out smoothly between refreshes.
+      const out = await getDecayedLlmSignal({
+        market: coin.market,
+        symbol: coin.symbol,
+        spotPrice: currentPrice,
+        recentReturnPct,
+        newsTitles: titles,
+        apiKey: runtimeConfig.llmApiKey || undefined,
       });
-      setLlmSignal(out);
+      setLlmSignal({ bias: out.bias, confidence: out.confidence, rationale: out.rationale });
     };
     void run();
   }, [coin.market, coin.symbol, modelSeries, currentPrice, runtimeConfig.llmApiKey]);
@@ -297,6 +301,7 @@ function PredictionEngine() {
 
   return (
     <div className="min-h-screen relative z-10">
+      <DisclaimerModal />
       {/* Header */}
       <header className="border-b border-border backdrop-blur-md bg-background/70 sticky top-0 z-40">
         <div className="max-w-[1600px] mx-auto px-4 py-3 flex items-center gap-4 flex-wrap">
@@ -337,6 +342,8 @@ function PredictionEngine() {
 
       {/* Main */}
       <main className="max-w-[1600px] mx-auto px-4 py-4 space-y-4">
+        <DisclaimerBanner />
+
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <div className="xl:col-span-2">
             <ApiConnectPanel value={runtimeConfig || DEFAULT_RUNTIME_CONFIG} onConnect={handleConnect} />
@@ -429,6 +436,15 @@ function PredictionEngine() {
 
         <TrainerPanel market={coin.market} symbol={coin.id} timeframe={timeframe.id} />
 
+        {/* P0: walk-forward backtest with costs */}
+        <WalkForwardPanel coin={coin} />
+
+        {/* P0: calibration of probabilistic confidence */}
+        <CalibrationPanel coin={coin} timeframe={timeframe} />
+
+        {/* P0: cost-adjusted performance across ALL assets */}
+        <PerformanceTable />
+
         <ComparisonPanel coin={coin} />
 
         {/* Footer note */}
@@ -445,6 +461,8 @@ function PredictionEngine() {
           <span style={{ color: "var(--ssl)" }}> Stochastic Speed Limit</span> draws the Itô 95%
           envelope (μT ± 1.96σ√T). Directional accuracy is tracked locally.
         </div>
+
+        <DisclaimerFooter />
       </main>
     </div>
   );
