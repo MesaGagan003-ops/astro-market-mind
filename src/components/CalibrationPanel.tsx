@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ScatterChart, Scatter, Line, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ComposedChart } from "recharts";
+import { Scatter, Line, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ComposedChart } from "recharts";
 import { fetchCalibration, type CalibrationResult } from "@/lib/calibration";
 import type { MarketAsset } from "@/lib/markets";
 import type { Timeframe } from "@/lib/timeframes";
@@ -28,7 +28,10 @@ export function CalibrationPanel({ coin, timeframe, refreshKey }: Props) {
     observed: b.observed,
     count: b.count,
   }));
-  const diagonal = [{ predicted: 0, observed: 0 }, { predicted: 1, observed: 1 }];
+  const diagonal: [{ x: number; y: number }, { x: number; y: number }] = [
+    { x: 0, y: 0 },
+    { x: 1, y: 1 },
+  ];
 
   return (
     <div className="panel p-4">
@@ -70,7 +73,11 @@ export function CalibrationPanel({ coin, timeframe, refreshKey }: Props) {
                   tick={{ fill: "oklch(0.65 0.03 255)", fontSize: 10 }}
                 />
                 <Tooltip
-                  formatter={(v: number, name: string) => name === "count" ? v : `${(v * 100).toFixed(1)}%`}
+                  formatter={(value, name) => {
+                    const v = Number(value);
+                    if (!Number.isFinite(v)) return ["—", String(name)];
+                    return name === "count" ? [String(v), String(name)] : [`${(v * 100).toFixed(1)}%`, String(name)];
+                  }}
                   contentStyle={{ background: "oklch(0.18 0.04 265)", border: "1px solid oklch(0.28 0.04 265)", fontSize: 11 }}
                 />
                 <ReferenceLine segment={diagonal} stroke="var(--muted-foreground)" strokeDasharray="3 3" />

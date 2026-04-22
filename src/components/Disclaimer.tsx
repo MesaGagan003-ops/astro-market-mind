@@ -26,8 +26,8 @@ export function DisclaimerModal() {
 
 export function DisclaimerBanner() {
   return (
-    <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200/90 flex items-center gap-2">
-      <span className="font-semibold uppercase tracking-wide text-amber-300">⚠ Research only</span>
+    <div className="rounded border border-warning/40 bg-warning/10 px-3 py-1.5 text-[11px] text-warning-foreground flex items-center gap-2">
+      <span className="font-semibold uppercase tracking-wide text-warning">⚠ Research only</span>
       <span>Forecasts &amp; signals are model output, not investment advice. Trade at your own risk.</span>
     </div>
   );

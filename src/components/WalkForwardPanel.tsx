@@ -90,7 +90,10 @@ export function WalkForwardPanel({ coin }: Props) {
                 <XAxis dataKey="ts" tickFormatter={(v) => new Date(v).toLocaleDateString([], { month: "short", day: "numeric" })} tick={{ fill: "oklch(0.65 0.03 255)", fontSize: 10 }} />
                 <YAxis domain={["auto", "auto"]} tick={{ fill: "oklch(0.65 0.03 255)", fontSize: 10 }} tickFormatter={(v) => `${((v - 1) * 100).toFixed(1)}%`} width={56} />
                 <Tooltip labelFormatter={(v) => new Date(Number(v)).toLocaleString()}
-                  formatter={(v: number) => `${((v - 1) * 100).toFixed(2)}%`}
+                  formatter={(value, name) => {
+                    const v = Number(value);
+                    return [Number.isFinite(v) ? `${((v - 1) * 100).toFixed(2)}%` : "—", String(name)];
+                  }}
                   contentStyle={{ background: "oklch(0.18 0.04 265)", border: "1px solid oklch(0.28 0.04 265)", fontSize: 11 }} />
                 <ReferenceLine y={1} stroke="var(--muted-foreground)" strokeDasharray="3 3" />
                 <Line type="monotone" dataKey="equity" stroke="var(--quantum)" strokeWidth={1.6} dot={false} />
