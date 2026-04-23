@@ -3,7 +3,6 @@
 // a TanStack Start server function and poll at ~1s for near-tick cadence.
 
 import { fetchBinancePrice, fetchBinanceKlines } from "./binanceProxy";
-import { fetchSmartApiHistory, fetchSmartApiLtp } from "./angleOneSmartApi";
 import { fetchForexHistory, fetchForexPrice } from "./forexProxy";
 import { fetchYahooHistory } from "./yahooProxy";
 import type { MarketAsset } from "./markets";
@@ -97,8 +96,8 @@ export async function fetchCoinGeckoHistory(coinId: string, days = 1): Promise<T
   }
 }
 
-// Yahoo-based polling fallback for any asset that has a yahooSymbol.
-// Used when SmartAPI credentials are missing for NSE/BSE.
+// Yahoo Finance polling for assets (free, delayed data).
+// Primary data source for NSE/BSE indices and stocks.
 function subscribeYahoo(symbol: string, onTick: TickHandler): () => void {
   let stopped = false;
   let lastTs = 0;
@@ -158,62 +157,23 @@ export function subscribeAsset(asset: MarketAsset, onTick: TickHandler, opts?: S
     };
   }
 
-  const exchange = asset.smartExchange ?? (asset.market === "bse" ? "BSE" : "NSE");
-  const tradingSymbol = asset.smartTradingSymbol ?? asset.symbol;
-  const token = asset.smartToken ?? "";
-  const cfg = opts?.runtimeConfig;
-
-  // Fallback to Yahoo polling when SmartAPI credentials are missing.
-  // This gives free (delayed) tick-like data for any NSE/BSE asset.
-  const hasSmartCreds = Boolean(cfg?.smartApiKey && cfg?.smartClientCode && cfg?.smartPassword);
-  if (!hasSmartCreds) {
-    if (asset.yahooSymbol) {
-      opts?.onStatus?.({ provider: `yahoo:${exchange}`, state: "fallback", detail: "no SmartAPI creds" });
-      return subscribeYahoo(asset.yahooSymbol, onTick);
+  // NSE/BSE: Use Yahoo Finance (free, delayed ticks)
+  if (asset.market === "nse" || asset.market === "bse") {
+    if (!asset.yahooSymbol) {
+      opts?.onStatus?.({
+        provider: asset.market === "bse" ? "BSE" : "NSE",
+        state: "failing",
+        detail: "No Yahoo symbol configured",
+      });
+      return () => {};
     }
-    opts?.onStatus?.({ provider: `smartapi:${exchange}`, state: "failing", detail: "no creds, no yahoo symbol" });
-    return () => {};
+    opts?.onStatus?.({
+      provider: asset.market === "bse" ? "BSE:yahoo" : "NSE:yahoo",
+      state: "live",
+      detail: "Free delayed data",
+    });
+    return subscribeYahoo(asset.yahooSymbol, onTick);
   }
-
-  let stopped = false;
-  const poll = async () => {
-    while (!stopped) {
-      try {
-        const t = await fetchSmartApiLtp({
-          data: {
-            exchange,
-            tradingSymbol,
-            token,
-            smartApiKey: cfg?.smartApiKey,
-            smartClientCode: cfg?.smartClientCode,
-            smartPassword: cfg?.smartPassword,
-            smartTotp: cfg?.smartTotp,
-          },
-        });
-        if (t.price > 0) {
-          onTick(t);
-          opts?.onStatus?.({ provider: `smartapi:${exchange}`, state: "live" });
-        } else if (asset.yahooSymbol) {
-          // SmartAPI returned empty — fall back to Yahoo for this poll
-          const rows = await fetchYahooHistory({ data: { symbol: asset.yahooSymbol, interval: "1m", range: "1d" } });
-          const last = rows[rows.length - 1];
-          if (last) {
-            onTick({ ts: Date.now(), price: last.price });
-            opts?.onStatus?.({ provider: `yahoo:${exchange}`, state: "fallback", detail: "smartapi empty" });
-          }
-        } else {
-          opts?.onStatus?.({ provider: `smartapi:${exchange}`, state: "failing", detail: "No LTP" });
-        }
-      } catch (e) {
-        opts?.onStatus?.({ provider: `smartapi:${exchange}`, state: "failing", detail: String((e as Error)?.message ?? e) });
-      }
-      await new Promise((r) => setTimeout(r, 1500));
-    }
-  };
-  poll();
-  return () => {
-    stopped = true;
-  };
 }
 
 export async function fetchAssetHistory(asset: MarketAsset, limit = 240, opts?: StreamOptions): Promise<Tick[]> {
@@ -238,44 +198,29 @@ export async function fetchAssetHistory(asset: MarketAsset, limit = 240, opts?: 
     }
   }
 
-  const exchange = asset.smartExchange ?? (asset.market === "bse" ? "BSE" : "NSE");
-  const tradingSymbol = asset.smartTradingSymbol ?? asset.symbol;
-  const token = asset.smartToken ?? "";
-  const cfg = opts?.runtimeConfig;
-  const hasSmartCreds = Boolean(cfg?.smartApiKey && cfg?.smartClientCode && cfg?.smartPassword);
-
-  if (!hasSmartCreds && asset.yahooSymbol) {
-    opts?.onStatus?.({ provider: `yahoo:${exchange}`, state: "fallback", detail: "history (no SmartAPI creds)" });
-    try {
-      return await fetchYahooHistory({ data: { symbol: asset.yahooSymbol, interval: "1m", range: "1d" } });
-    } catch {
-      return [];
-    }
-  }
-
-  try {
-    const rows = await fetchSmartApiHistory({
-      data: {
-        exchange,
-        tradingSymbol,
-        token,
-        interval: "ONE_MINUTE",
-        limit,
-        smartApiKey: cfg?.smartApiKey,
-        smartClientCode: cfg?.smartClientCode,
-        smartPassword: cfg?.smartPassword,
-        smartTotp: cfg?.smartTotp,
-      },
+  // NSE/BSE: Use Yahoo Finance (free, delayed data)
+  const exchange = asset.market === "bse" ? "BSE" : "NSE";
+  if (!asset.yahooSymbol) {
+    opts?.onStatus?.({
+      provider: exchange,
+      state: "failing",
+      detail: "No Yahoo symbol configured",
     });
-    if (rows.length === 0 && asset.yahooSymbol) {
-      opts?.onStatus?.({ provider: `yahoo:${exchange}`, state: "fallback", detail: "smartapi empty" });
-      return await fetchYahooHistory({ data: { symbol: asset.yahooSymbol, interval: "1m", range: "1d" } });
-    }
-    return rows;
-  } catch {
-    if (asset.yahooSymbol) {
-      return await fetchYahooHistory({ data: { symbol: asset.yahooSymbol, interval: "1m", range: "1d" } });
-    }
+    return [];
+  }
+  opts?.onStatus?.({
+    provider: `${exchange}:yahoo`,
+    state: "live",
+    detail: "history (free delayed)",
+  });
+  try {
+    return await fetchYahooHistory({ data: { symbol: asset.yahooSymbol, interval: "1m", range: "1d" } });
+  } catch (e) {
+    opts?.onStatus?.({
+      provider: `${exchange}:yahoo`,
+      state: "failing",
+      detail: String((e as Error)?.message ?? e),
+    });
     return [];
   }
 }

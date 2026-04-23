@@ -7,7 +7,7 @@ import { ModelPanels } from "@/components/ModelPanels";
 import { AccuracyTracker } from "@/components/AccuracyTracker";
 import { DemoTrading } from "@/components/DemoTrading";
 import { NewsPanel } from "@/components/NewsPanel";
-import { ApiConnectPanel } from "@/components/ApiConnectPanel";
+import { DataSourceInfo } from "@/components/DataSourceInfo";
 import { ProviderHealthPanel, type ProviderHealthItem } from "@/components/ProviderHealthPanel";
 import { TrainerPanel } from "@/components/TrainerPanel";
 import { ComparisonPanel } from "@/components/ComparisonPanel";
@@ -28,7 +28,6 @@ import {
 } from "@/lib/accuracy";
 import { recordPredictionCloud, resolvePendingPredictions, loadWeights } from "@/lib/learning";
 import type { AdaptiveWeights } from "@/lib/learning";
-import { DEFAULT_RUNTIME_CONFIG, loadRuntimeConfig, saveRuntimeConfig, type RuntimeConfig } from "@/lib/runtimeConfig";
 import { assessDataQuality, isReadyForTrading, type DataQualityScore } from "@/lib/dataQuality";
 import { fetchYahooHistory } from "@/lib/yahooProxy";
 import { CalibrationPanel } from "@/components/CalibrationPanel";
@@ -62,7 +61,6 @@ function PredictionEngine() {
   const [ticks, setTicks] = useState<Tick[]>([]);
   const [currentPrice, setCurrentPrice] = useState<number>(0);
   const [stats, setStats] = useState<AccuracyStats>(() => computeAccuracy(`${coin.market}:${coin.id}`, timeframe.id));
-  const [runtimeConfig, setRuntimeConfig] = useState<RuntimeConfig>(() => loadRuntimeConfig());
   const [providerHealth, setProviderHealth] = useState<Record<string, ProviderHealthItem>>({});
   const [yahooTrain, setYahooTrain] = useState<number[]>([]);
   const [adaptive, setAdaptive] = useState<AdaptiveWeights | null>(null);
@@ -92,7 +90,7 @@ function PredictionEngine() {
     setCurrentPrice(0);
 
     const init = async () => {
-      let hist: Tick[] = await fetchAssetHistory(coin, 240, { runtimeConfig, onStatus });
+      let hist: Tick[] = await fetchAssetHistory(coin, 240, { onStatus });
       if (cancelled) return;
       // downsample if too many
       if (hist.length > 240) {
@@ -108,13 +106,13 @@ function PredictionEngine() {
     const unsub = subscribeAsset(coin, (t) => {
       setCurrentPrice(t.price);
       setTicks((prev) => [...prev.slice(-799), t]);
-    }, { runtimeConfig, onStatus });
+    }, { onStatus });
 
     return () => {
       cancelled = true;
       unsub?.();
     };
-  }, [coin, runtimeConfig, onStatus]);
+  }, [coin, onStatus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -256,21 +254,6 @@ function PredictionEngine() {
   const minutesPerStep = Math.max(1, timeframe.minutes / Math.min(timeframe.minutes, 200));
   const healthItems = useMemo(() => Object.values(providerHealth).sort((a, b) => a.provider.localeCompare(b.provider)), [providerHealth]);
 
-  const handleConnect = async (cfg: RuntimeConfig) => {
-    setRuntimeConfig(cfg);
-    saveRuntimeConfig(cfg);
-    setProviderHealth((prev) => ({
-      ...prev,
-      credentials: {
-        key: "credentials",
-        provider: "credentials",
-        state: "live",
-        detail: "saved",
-        updatedAt: Date.now(),
-      },
-    }));
-  };
-
   return (
     <div className="min-h-screen relative z-10">
       <DisclaimerModal />
@@ -294,7 +277,7 @@ function PredictionEngine() {
                   ? coin.binanceSymbol
                     ? "Binance tick"
                     : "5s poll"
-                  : "SmartAPI poll"}
+                  : "Yahoo (NSE/BSE)"}
               </span>
               <span className="font-mono font-bold text-foreground">
                 {currentPrice > 0 ? `$${formatLive(currentPrice)}` : "—"}
@@ -324,7 +307,7 @@ function PredictionEngine() {
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <div className="xl:col-span-2">
-            <ApiConnectPanel value={runtimeConfig || DEFAULT_RUNTIME_CONFIG} onConnect={handleConnect} />
+            <DataSourceInfo />
           </div>
           <ProviderHealthPanel items={healthItems} />
         </div>

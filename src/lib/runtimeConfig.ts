@@ -1,32 +1,14 @@
-export interface RuntimeConfig {
-  smartApiKey: string;
-  smartClientCode: string;
-  smartPassword: string;
-  smartTotp: string;
-}
+// Runtime config is empty now - using only free data sources (Binance, CoinGecko, Yahoo Finance)
+export interface RuntimeConfig {}
 
 const KEY = "miro.runtime.config.v1";
 
-export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
-  smartApiKey: "",
-  smartClientCode: "",
-  smartPassword: "",
-  smartTotp: "",
-};
+export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {};
 
 export function loadRuntimeConfig(): RuntimeConfig {
-  if (typeof window === "undefined") return DEFAULT_RUNTIME_CONFIG;
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return DEFAULT_RUNTIME_CONFIG;
-    const parsed = JSON.parse(raw) as Partial<RuntimeConfig>;
-    return { ...DEFAULT_RUNTIME_CONFIG, ...parsed };
-  } catch {
-    return DEFAULT_RUNTIME_CONFIG;
-  }
+  return DEFAULT_RUNTIME_CONFIG;
 }
 
-export function saveRuntimeConfig(cfg: RuntimeConfig): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(KEY, JSON.stringify(cfg));
+export function saveRuntimeConfig(_cfg: RuntimeConfig): void {
+  // No-op: no credentials to save
 }
