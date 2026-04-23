@@ -17,6 +17,7 @@ import { fitHmm3 } from "./hmm";
 import { shannonEntropy } from "./entropy";
 import { hurstExponent, hamiltonianEnergy, type HurstResult, type HamiltonianResult } from "./features";
 import { quantumSpeedLimit, stochasticSpeedLimit, type SpeedLimit } from "./speedLimits";
+import { extractFeatures, type IndicatorFeatures } from "./indicators";
 
 export interface ForecastPoint {
   step: number;
@@ -38,11 +39,12 @@ export interface HybridResult {
   hamiltonian: HamiltonianResult;
   qsl: SpeedLimit;
   ssl: SpeedLimit;
+  indicators: IndicatorFeatures;
   forecast: ForecastPoint[];
   finalPrice: number;
   direction: "up" | "down" | "flat";
   hybridConfidence: number;
-  weights: { arima: number; hmm: number; entropy: number; hurst: number; llm: number };
+  weights: { arima: number; hmm: number; entropy: number; hurst: number; indicators: number; llm: number };
 }
 
 export interface HybridOptions {
@@ -59,6 +61,7 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
   const entropy = shannonEntropy(prices);
   const hurst = hurstExponent(prices);
   const hamiltonian = hamiltonianEnergy(prices);
+  const indicators = extractFeatures(prices);
   const last = prices[prices.length - 1];
 
   // Seed by series LENGTH only (not by exact price). This keeps the wiggle
@@ -93,18 +96,20 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
   // If data quality is poor, reduce confidence. E.g., 0.5 quality → 0.5x confidence multiplier
 
   const learned = {
-    arima: Math.max(0.05, Number(options?.adaptiveWeights?.arima ?? 0.45)),
-    hmm: Math.max(0.05, Number(options?.adaptiveWeights?.hmm ?? 0.25)),
+    arima: Math.max(0.05, Number(options?.adaptiveWeights?.arima ?? 0.40)),
+    hmm: Math.max(0.05, Number(options?.adaptiveWeights?.hmm ?? 0.22)),
     entropy: Math.max(0.05, Number(options?.adaptiveWeights?.entropy ?? edge)),
     hurst: Math.max(0.05, Number(options?.adaptiveWeights?.hurst ?? hurstTrust)),
+    indicators: 0.18, // VWAP-z + EMA-slope + MACD consolidated bias
     llm: 0,
   };
-  const learnedSum = learned.arima + learned.hmm + learned.entropy + learned.hurst + learned.llm;
+  const learnedSum = learned.arima + learned.hmm + learned.entropy + learned.hurst + learned.indicators + learned.llm;
   const weights = {
     arima: learned.arima / learnedSum,
     hmm: learned.hmm / learnedSum,
     entropy: learned.entropy / learnedSum,
     hurst: learned.hurst / learnedSum,
+    indicators: learned.indicators / learnedSum,
     llm: learned.llm / learnedSum,
   };
 
@@ -121,6 +126,7 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
     let trend = baseDrift
       + regimeBias * garch.sigma * 0.18 * (i + 1)
       + hamPush * (i + 1) * 0.4
+      + indicators.bias * weights.indicators * garch.sigma * 0.55 * (i + 1)
       + llmBias * llmConfidence * weights.llm * garch.sigma * 0.2 * (i + 1);
     trend *= trustTrend;
     let price = last + trend + wiggle; // wiggle preserved at full amplitude
@@ -178,8 +184,18 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
   const confidenceBeforeCap = (baseConfidence + consensusBonus + 0.20) * softQuality;
   const hybridConfidence = Math.max(0.55, Math.min(0.88, confidenceBeforeCap));
 
+  // Indicator agreement bonus: if VWAP-z, EMA-slope and MACD all agree with
+  // the predicted direction, lift confidence a touch — they are leading
+  // technical signals validated on liquid intraday markets.
+  const indicatorAgrees =
+    direction === "up" ? (indicators.bias > 0.15 ? 1 : indicators.bias > 0 ? 0.5 : 0)
+    : direction === "down" ? (indicators.bias < -0.15 ? 1 : indicators.bias < 0 ? 0.5 : 0)
+    : 0.4;
+  const indicatorBoost = indicatorAgrees * 0.04;
+  const finalConfidence = Math.max(0.55, Math.min(0.90, hybridConfidence + indicatorBoost));
+
   return {
-    arima, garch, hmm, entropy, hurst, hamiltonian, qsl, ssl,
-    forecast, finalPrice, direction, hybridConfidence, weights,
+    arima, garch, hmm, entropy, hurst, hamiltonian, indicators, qsl, ssl,
+    forecast, finalPrice, direction, hybridConfidence: finalConfidence, weights,
   };
 }

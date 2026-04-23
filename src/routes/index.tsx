@@ -35,6 +35,7 @@ import { WalkForwardPanel } from "@/components/WalkForwardPanel";
 import { PerformanceTable } from "@/components/PerformanceTable";
 import { DisclaimerModal, DisclaimerBanner, DisclaimerFooter } from "@/components/Disclaimer";
 import { TradingReadinessAlert } from "@/components/TradingReadinessAlert";
+import { IndicatorOverlayPanel } from "@/components/IndicatorOverlayPanel";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -394,6 +395,9 @@ function PredictionEngine() {
         {prediction && (
           <ModelPanels result={prediction} currentPrice={currentPrice} minutes={timeframe.minutes} />
         )}
+
+        {/* Technical indicator overlay (visual context on actual line + features that feed the model) */}
+        <IndicatorOverlayPanel history={ticks.map((t) => ({ ts: t.ts, price: t.price }))} />
 
         <TrainerPanel market={coin.market} symbol={coin.id} timeframe={timeframe.id} />
 
