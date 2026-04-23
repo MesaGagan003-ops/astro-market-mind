@@ -52,27 +52,66 @@ export const fetchCoinNews = createServerFn({ method: "GET" })
     return { symbol: String(i.symbol ?? "BTC").toUpperCase() };
   })
   .handler(async ({ data }) => {
-    // CryptoPanic free public feed — no auth_token needed for "posts"
-    // currencies filter accepts ticker symbols (BTC, ETH, SOL ...)
-    const url = `https://cryptopanic.com/api/v1/posts/?public=true&currencies=${data.symbol}&kind=news`;
+    // Primary: CryptoCompare News (free, no API key, generous CORS, stable schema).
+    // Filter by category (their token for the asset). Falls back to general feed.
+    const headers = { "User-Agent": "MIRO/1.0", Accept: "application/json" } as const;
+    const ccUrl = `https://min-api.cryptocompare.com/data/v2/news/?lang=EN&categories=${encodeURIComponent(data.symbol)}`;
     try {
-      const res = await fetch(url, {
-        headers: { "User-Agent": "QuantumEdge/1.0", Accept: "application/json" },
-      });
-      if (!res.ok) {
-        // fallback: general feed
-        const r2 = await fetch(`https://cryptopanic.com/api/v1/posts/?public=true&kind=news`, {
-          headers: { "User-Agent": "QuantumEdge/1.0", Accept: "application/json" },
-        });
-        if (!r2.ok) return { items: [] as RawPost[] };
-        return { items: ((await r2.json()) as { results?: RawPost[] }).results ?? [] };
+      const res = await fetch(ccUrl, { headers });
+      if (res.ok) {
+        const j = (await res.json()) as { Data?: CCNewsItem[] };
+        const mapped = (j.Data ?? []).slice(0, 30).map(ccToRaw);
+        if (mapped.length > 0) return { items: mapped };
       }
-      const j = (await res.json()) as { results?: RawPost[] };
-      return { items: j.results ?? [] };
-    } catch {
-      return { items: [] as RawPost[] };
-    }
+    } catch { /* fall through */ }
+
+    // Fallback 1: CryptoCompare general feed.
+    try {
+      const res = await fetch(`https://min-api.cryptocompare.com/data/v2/news/?lang=EN`, { headers });
+      if (res.ok) {
+        const j = (await res.json()) as { Data?: CCNewsItem[] };
+        const mapped = (j.Data ?? []).slice(0, 30).map(ccToRaw);
+        if (mapped.length > 0) return { items: mapped };
+      }
+    } catch { /* fall through */ }
+
+    // Fallback 2: CryptoPanic public feed (legacy).
+    try {
+      const r2 = await fetch(`https://cryptopanic.com/api/v1/posts/?public=true&kind=news`, { headers });
+      if (r2.ok) {
+        const j = (await r2.json()) as { results?: RawPost[] };
+        return { items: j.results ?? [] };
+      }
+    } catch { /* ignore */ }
+
+    return { items: [] as RawPost[] };
   });
+
+interface CCNewsItem {
+  id: string | number;
+  title: string;
+  url: string;
+  published_on: number; // unix seconds
+  source?: string;
+  source_info?: { name?: string };
+  body?: string;
+  upvotes?: string | number;
+  downvotes?: string | number;
+}
+
+function ccToRaw(it: CCNewsItem): RawPost {
+  return {
+    id: Number(it.id) || Math.floor(Math.random() * 1e9),
+    title: it.title,
+    url: it.url,
+    published_at: new Date(it.published_on * 1000).toISOString(),
+    source: { title: it.source_info?.name || it.source || "cryptocompare" },
+    votes: {
+      positive: Number(it.upvotes ?? 0),
+      negative: Number(it.downvotes ?? 0),
+    },
+  };
+}
 
 interface RawPost {
   id: number;
