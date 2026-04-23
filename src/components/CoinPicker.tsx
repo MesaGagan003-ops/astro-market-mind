@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { loadAllAssets, FEATURED_ASSETS, marketLabel, type MarketAsset } from "@/lib/markets";
+import { loadAllAssets, FEATURED_ASSETS, marketLabel, assetDisplaySymbol, type MarketAsset } from "@/lib/markets";
 
 interface Props {
   value: MarketAsset;
@@ -43,7 +43,7 @@ export function CoinPicker({ value, onChange }: Props) {
         className="flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-md hover:border-primary transition-colors min-w-[180px]"
       >
         <span className="font-display font-semibold text-foreground">
-          {value.symbol.toUpperCase()}
+          {assetDisplaySymbol(value)}
         </span>
         <span className="text-xs text-muted-foreground truncate">{value.name}</span>
         <span className="ml-auto text-xs text-muted-foreground">▾</span>
@@ -64,7 +64,7 @@ export function CoinPicker({ value, onChange }: Props) {
                 onClick={() => { onChange(c); setOpen(false); setQuery(""); }}
                 className="w-full flex items-center gap-2 px-3 py-2 hover:bg-secondary text-left text-sm border-b border-border/40"
               >
-                <span className="font-mono font-semibold w-16 text-foreground">{c.symbol.toUpperCase()}</span>
+                <span className="font-mono font-semibold w-24 text-foreground text-xs">{assetDisplaySymbol(c)}</span>
                 <span className="text-muted-foreground truncate flex-1">{c.name}</span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
                   {marketLabel(c.market)}

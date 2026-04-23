@@ -61,5 +61,23 @@ export function marketLabel(market: MarketKind): string {
   if (market === "crypto") return "Crypto";
   if (market === "nse") return "NSE";
   if (market === "bse") return "BSE";
+  if (market === "forex") return "Forex";
   return "Other";
+}
+
+// CoinGecko-style display ticker.
+//   crypto  → "BTC/USDT"
+//   forex   → "EUR/USD"
+//   nse/bse → "RELIANCE.NS" / "RELIANCE.BO"  (or plain symbol for indices)
+export function assetDisplaySymbol(asset: MarketAsset): string {
+  const sym = asset.symbol.toUpperCase();
+  if (asset.market === "crypto") return `${sym}/USDT`;
+  if (asset.market === "forex") {
+    const base = (asset.forexBase ?? sym.slice(0, 3)).toUpperCase();
+    const quote = (asset.forexQuote ?? sym.slice(3, 6) ?? "USD").toUpperCase();
+    return `${base}/${quote}`;
+  }
+  if (asset.market === "nse") return sym.startsWith("^") || sym.includes(".") ? sym : `${sym}.NS`;
+  if (asset.market === "bse") return sym.startsWith("^") || sym.includes(".") ? sym : `${sym}.BO`;
+  return sym;
 }
