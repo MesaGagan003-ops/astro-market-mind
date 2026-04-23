@@ -10,6 +10,8 @@ import {
   Legend,
 } from "recharts";
 import { fetchYahooHistory } from "@/lib/yahooProxy";
+import { fetchBinanceKlines } from "@/lib/binanceProxy";
+import { fetchForexHistory } from "@/lib/forexProxy";
 import { hybridPredict } from "@/lib/physics/hybrid";
 import type { MarketAsset } from "@/lib/markets";
 
@@ -19,11 +21,11 @@ interface Props {
 
 type RangeKey = "1h" | "1w" | "1mo" | "1y";
 
-const RANGES: Array<{ key: RangeKey; label: string; interval: string; range: string; predictFraction: number }> = [
-  { key: "1h", label: "1 hour", interval: "1m", range: "1d", predictFraction: 0.25 },
-  { key: "1w", label: "1 week", interval: "15m", range: "1mo", predictFraction: 0.2 },
-  { key: "1mo", label: "1 month", interval: "1h", range: "3mo", predictFraction: 0.2 },
-  { key: "1y", label: "1 year", interval: "1d", range: "5y", predictFraction: 0.2 },
+const RANGES: Array<{ key: RangeKey; label: string; interval: string; range: string; predictFraction: number; binanceInterval: string; binanceLimit: number; forexLimit: number }> = [
+  { key: "1h", label: "1 hour", interval: "1m", range: "1d", predictFraction: 0.25, binanceInterval: "1m", binanceLimit: 60, forexLimit: 60 },
+  { key: "1w", label: "1 week", interval: "15m", range: "1mo", predictFraction: 0.2, binanceInterval: "15m", binanceLimit: 700, forexLimit: 200 },
+  { key: "1mo", label: "1 month", interval: "1h", range: "3mo", predictFraction: 0.2, binanceInterval: "1h", binanceLimit: 720, forexLimit: 365 },
+  { key: "1y", label: "1 year", interval: "1d", range: "5y", predictFraction: 0.2, binanceInterval: "1d", binanceLimit: 365, forexLimit: 365 },
 ];
 
 interface Row {
