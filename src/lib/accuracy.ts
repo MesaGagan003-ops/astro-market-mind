@@ -68,6 +68,10 @@ export interface AccuracyStats {
   resolved: number;
   correct: number;
   rate: number;
+  /** alias of rate (0..1) for downstream consumers */
+  accuracy: number;
+  /** mean Brier score across resolved predictions */
+  brier: number;
   lastN: { id: string; correct: boolean }[];
 }
 
@@ -75,11 +79,20 @@ export function computeAccuracy(coinId: string, timeframeId: string): AccuracySt
   const all = loadPredictions().filter((p) => p.coinId === coinId && p.timeframeId === timeframeId);
   const resolved = all.filter((p) => p.correct !== undefined);
   const correct = resolved.filter((p) => p.correct).length;
+  const rate = resolved.length > 0 ? correct / resolved.length : 0;
+  let brierSum = 0;
+  for (const p of resolved) {
+    const c = Math.max(0, Math.min(1, p.hybridConfidence ?? 0.5));
+    brierSum += p.correct ? (1 - c) ** 2 : c ** 2;
+  }
+  const brier = resolved.length > 0 ? brierSum / resolved.length : 0.25;
   return {
     total: all.length,
     resolved: resolved.length,
     correct,
-    rate: resolved.length > 0 ? correct / resolved.length : 0,
+    rate,
+    accuracy: rate,
+    brier,
     lastN: resolved.slice(-20).map((p) => ({ id: p.id, correct: !!p.correct })),
   };
 }
