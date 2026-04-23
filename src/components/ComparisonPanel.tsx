@@ -40,24 +40,34 @@ export function ComparisonPanel({ coin }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    if (!coin.yahooSymbol) {
-      setRows([]);
-      setError("No historical symbol available for this asset.");
-      return;
-    }
     setLoading(true);
     setError(null);
     const cfg = RANGES.find((r) => r.key === range)!;
     const truncate = range === "1h" ? 60 : undefined; // for 1h take last 60 points only
+
+    const symbolCandidates = buildYahooCandidates(coin);
+    const requestPlan: Array<{ interval: string; range: string }> = [
+      { interval: cfg.interval, range: cfg.range },
+      { interval: "5m", range: "5d" },
+      { interval: "15m", range: "1mo" },
+      { interval: "1h", range: "3mo" },
+      { interval: "1d", range: "1y" },
+    ];
+
     void (async () => {
       try {
-        const hist = await fetchYahooHistory({
-          data: { symbol: coin.yahooSymbol!, interval: cfg.interval, range: cfg.range },
-        });
+        let hist: Array<{ ts: number; price: number }> = [];
+        for (const symbol of symbolCandidates) {
+          for (const req of requestPlan) {
+            hist = await fetchYahooHistory({ data: { symbol, interval: req.interval, range: req.range } });
+            if (hist.length > 30) break;
+          }
+          if (hist.length > 30) break;
+        }
         if (cancelled) return;
         if (!hist.length) {
           setRows([]);
-          setError("No historical data returned.");
+          setError("No historical data returned for this asset yet. Try another symbol or timeframe.");
           setLoading(false);
           return;
         }
@@ -98,7 +108,7 @@ export function ComparisonPanel({ coin }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [coin.yahooSymbol, range]);
+  }, [coin.id, coin.market, coin.symbol, coin.yahooSymbol, range]);
 
   const stats = useMemo(() => {
     const valid = rows.filter((r) => r.actual != null && r.predicted != null);
@@ -205,6 +215,21 @@ export function ComparisonPanel({ coin }: Props) {
       </div>
     </div>
   );
+}
+
+function buildYahooCandidates(coin: MarketAsset): string[] {
+  const out = new Set<string>();
+  if (coin.yahooSymbol) out.add(coin.yahooSymbol.toUpperCase());
+  const s = coin.symbol.toUpperCase().replace(/[^A-Z0-9^]/g, "");
+  if (s) {
+    if (coin.market === "nse") out.add(`${s}.NS`);
+    if (coin.market === "bse") out.add(`${s}.BO`);
+    if (coin.market === "crypto") out.add(`${s}-USD`);
+  }
+  if (coin.id === "nifty-50") out.add("^NSEI");
+  if (coin.id === "sensex") out.add("^BSESN");
+  if (coin.id === "banknifty") out.add("^NSEBANK");
+  return Array.from(out);
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

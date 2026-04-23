@@ -135,8 +135,8 @@ export function subscribeAsset(asset: MarketAsset, onTick: TickHandler, opts?: S
   if (asset.market === "forex") {
     const base = asset.forexBase ?? "EUR";
     const quote = asset.forexQuote ?? "USD";
-    const mode = opts?.runtimeConfig?.forexMode ?? "auto";
-    const premiumApiKey = opts?.runtimeConfig?.forexPremiumApiKey ?? "";
+    const mode = "free";
+    const premiumApiKey = "";
     let stopped = false;
     const poll = async () => {
       while (!stopped) {
@@ -226,8 +226,8 @@ export async function fetchAssetHistory(asset: MarketAsset, limit = 240, opts?: 
   if (asset.market === "forex") {
     const base = asset.forexBase ?? "EUR";
     const quote = asset.forexQuote ?? "USD";
-    const mode = opts?.runtimeConfig?.forexMode ?? "auto";
-    const premiumApiKey = opts?.runtimeConfig?.forexPremiumApiKey ?? "";
+    const mode = "free";
+    const premiumApiKey = "";
     try {
       const rows = await fetchForexHistory({ data: { base, quote, limit, mode, premiumApiKey } });
       opts?.onStatus?.({ provider: "forex-history", state: "live" });

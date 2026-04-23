@@ -94,7 +94,7 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
     hmm: Math.max(0.05, Number(options?.adaptiveWeights?.hmm ?? 0.25)),
     entropy: Math.max(0.05, Number(options?.adaptiveWeights?.entropy ?? edge)),
     hurst: Math.max(0.05, Number(options?.adaptiveWeights?.hurst ?? hurstTrust)),
-    llm: Math.max(0, Number(options?.adaptiveWeights?.llm ?? 0.05)),
+    llm: 0,
   };
   const learnedSum = learned.arima + learned.hmm + learned.entropy + learned.hurst + learned.llm;
   const weights = {
@@ -153,9 +153,18 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
     direction === "down" ? hmm.stateProbs[0] :
     hmm.stateProbs[1];
   const hurstAgrees = hurst.regime === "trending" ? 1 : hurst.regime === "random" ? 0.5 : 0.3;
-  const hybridConfidence = Math.max(0, Math.min(1,
-    0.28 * edge + 0.24 * hmm.confidence + 0.24 * regimeAgrees + 0.18 * hurstAgrees + 0.06 * llmConfidence,
-  ));
+  const baseConfidence =
+    0.34 * edge +
+    0.30 * hmm.confidence +
+    0.22 * regimeAgrees +
+    0.14 * hurstAgrees;
+  const consensus =
+    (edge > 0.55 ? 1 : 0) +
+    (hmm.confidence > 0.55 ? 1 : 0) +
+    (regimeAgrees > 0.5 ? 1 : 0) +
+    (hurstAgrees > 0.5 ? 1 : 0);
+  const consensusBonus = consensus >= 3 ? 0.08 : consensus === 2 ? 0.03 : 0;
+  const hybridConfidence = Math.max(0.35, Math.min(0.8, baseConfidence + consensusBonus));
 
   return {
     arima, garch, hmm, entropy, hurst, hamiltonian, qsl, ssl,

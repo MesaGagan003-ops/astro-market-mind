@@ -17,7 +17,7 @@ export interface AdaptiveWeights {
 }
 
 const DEFAULT_WEIGHTS: AdaptiveWeights = {
-  arima: 0.45, hmm: 0.25, entropy: 0.15, hurst: 0.10, llm: 0.05,
+  arima: 0.48, hmm: 0.30, entropy: 0.14, hurst: 0.08, llm: 0,
   samples: 0, recentBrier: 0.25, recentAccuracy: 0.5,
 };
 
@@ -62,7 +62,6 @@ export interface PredictionRecord {
   hybridConfidence: number;
   weights: Record<string, number>;
   features?: Record<string, unknown>;
-  llmBias?: number;
 }
 
 export async function recordPredictionCloud(p: PredictionRecord): Promise<string | null> {
@@ -74,7 +73,7 @@ export async function recordPredictionCloud(p: PredictionRecord): Promise<string
       hybrid_confidence: p.hybridConfidence,
       weights: p.weights as never,
       features: (p.features ?? null) as never,
-      llm_bias: p.llmBias ?? null,
+      llm_bias: null,
       resolves_at: new Date(Date.now() + p.horizonSeconds * 1000).toISOString(),
     }).select("id").single();
     if (error) throw error;
@@ -158,10 +157,10 @@ async function updateWeightsFromOutcomes(
   // Re-weight components: shrink ARIMA share when accuracy is bad, push toward HMM+LLM.
   const w = {
     arima: current.arima * (newAcc > 0.55 ? 1.02 : 0.97),
-    hmm:   current.hmm   * (newAcc > 0.55 ? 1.0  : 1.03),
-    entropy: current.entropy,
-    hurst: current.hurst,
-    llm:   current.llm   * (newAcc < 0.5 ? 1.05 : 1.0),
+    hmm:   current.hmm   * (newAcc > 0.55 ? 1.01 : 1.03),
+    entropy: current.entropy * (newAcc > 0.55 ? 1.0 : 0.99),
+    hurst: current.hurst * (newAcc > 0.55 ? 1.0 : 0.99),
+    llm: 0,
   };
   const sum = w.arima + w.hmm + w.entropy + w.hurst + w.llm;
   const norm = {

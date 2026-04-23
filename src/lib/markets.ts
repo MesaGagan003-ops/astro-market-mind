@@ -32,17 +32,9 @@ const INDIAN_MARKET_ASSETS: MarketAsset[] = [
   { id: "icicibank-bse", symbol: "ICICIBANK", name: "ICICI Bank (BSE)", market: "bse", smartExchange: "BSE", smartTradingSymbol: "ICICIBANK", yahooSymbol: "ICICIBANK.BO" },
 ];
 
-const FOREX_ASSETS: MarketAsset[] = [
-  { id: "usd-inr", symbol: "USD/INR", name: "US Dollar / Indian Rupee", market: "forex", forexBase: "USD", forexQuote: "INR", yahooSymbol: "USDINR=X" },
-  { id: "eur-usd", symbol: "EUR/USD", name: "Euro / US Dollar", market: "forex", forexBase: "EUR", forexQuote: "USD", yahooSymbol: "EURUSD=X" },
-  { id: "gbp-usd", symbol: "GBP/USD", name: "British Pound / US Dollar", market: "forex", forexBase: "GBP", forexQuote: "USD", yahooSymbol: "GBPUSD=X" },
-  { id: "usd-jpy", symbol: "USD/JPY", name: "US Dollar / Japanese Yen", market: "forex", forexBase: "USD", forexQuote: "JPY", yahooSymbol: "USDJPY=X" },
-];
-
 export const FEATURED_ASSETS: MarketAsset[] = [
   ...FEATURED_COINS.map((c) => ({ ...c, market: "crypto" as const })),
   ...INDIAN_MARKET_ASSETS,
-  ...FOREX_ASSETS,
 ];
 
 let cache: MarketAsset[] | null = null;
@@ -61,7 +53,7 @@ export async function loadAllAssets(): Promise<MarketAsset[]> {
     yahooSymbol: `${c.symbol.toUpperCase()}-USD`,
   }));
 
-  const merged = [...cryptoAssets, ...INDIAN_MARKET_ASSETS, ...FOREX_ASSETS, ...smartMaster];
+  const merged = [...cryptoAssets, ...INDIAN_MARKET_ASSETS, ...smartMaster];
 
   merged.sort((a, b) => {
     if (a.market !== b.market) return a.market.localeCompare(b.market);
@@ -76,5 +68,5 @@ export function marketLabel(market: MarketKind): string {
   if (market === "crypto") return "Crypto";
   if (market === "nse") return "NSE";
   if (market === "bse") return "BSE";
-  return "Forex";
+  return "Other";
 }

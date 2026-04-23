@@ -1,13 +1,8 @@
-export type ForexMode = "auto" | "free" | "premium";
-
 export interface RuntimeConfig {
   smartApiKey: string;
   smartClientCode: string;
   smartPassword: string;
   smartTotp: string;
-  llmApiKey: string;
-  forexMode: ForexMode;
-  forexPremiumApiKey: string;
 }
 
 const KEY = "miro.runtime.config.v1";
@@ -17,9 +12,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   smartClientCode: "",
   smartPassword: "",
   smartTotp: "",
-  llmApiKey: "",
-  forexMode: "auto",
-  forexPremiumApiKey: "",
 };
 
 export function loadRuntimeConfig(): RuntimeConfig {

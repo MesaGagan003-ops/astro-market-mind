@@ -28,8 +28,6 @@ import {
 } from "@/lib/accuracy";
 import { recordPredictionCloud, resolvePendingPredictions, loadWeights } from "@/lib/learning";
 import type { AdaptiveWeights } from "@/lib/learning";
-import { getDecayedLlmSignal } from "@/lib/llmCache";
-import { fetchCoinNews } from "@/lib/news";
 import { DEFAULT_RUNTIME_CONFIG, loadRuntimeConfig, saveRuntimeConfig, type RuntimeConfig } from "@/lib/runtimeConfig";
 import { fetchYahooHistory } from "@/lib/yahooProxy";
 import { CalibrationPanel } from "@/components/CalibrationPanel";
@@ -44,7 +42,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Live market forecasting across crypto, NSE/BSE & Forex using ARIMA, GARCH, HMM, entropy, Hurst & Hamiltonian energy with adaptive learning.",
+          "Live market forecasting across crypto, NSE/BSE using ARIMA, GARCH, HMM, entropy, Hurst & Hamiltonian energy with adaptive learning.",
       },
       { property: "og:title", content: "MIRO — Physics Prediction Engine" },
       {
@@ -66,13 +64,7 @@ function PredictionEngine() {
   const [providerHealth, setProviderHealth] = useState<Record<string, ProviderHealthItem>>({});
   const [yahooTrain, setYahooTrain] = useState<number[]>([]);
   const [adaptive, setAdaptive] = useState<AdaptiveWeights | null>(null);
-  const [llmSignal, setLlmSignal] = useState<{ bias: number; confidence: number; rationale: string }>({
-    bias: 0,
-    confidence: 0,
-    rationale: "",
-  });
   const lastRecordRef = useRef<number>(0);
-  const lastLlmRef = useRef<number>(0);
 
   const onStatus = useMemo<ProviderStatusHandler>(() => {
     return (s) => {
@@ -194,48 +186,11 @@ function PredictionEngine() {
             hmm: adaptive.hmm,
             entropy: adaptive.entropy,
             hurst: adaptive.hurst,
-            llm: adaptive.llm,
           }
         : undefined,
-      llmBias: llmSignal.bias,
-      llmConfidence: llmSignal.confidence,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelSeries, timeframe.id, adaptive, llmSignal.bias, llmSignal.confidence]);
-
-  useEffect(() => {
-    const now = Date.now();
-    if (modelSeries.length < 20 || currentPrice <= 0) return;
-    if (now - lastLlmRef.current < 60_000) return;
-    lastLlmRef.current = now;
-
-    const recentBase = modelSeries[Math.max(0, modelSeries.length - 15)] || currentPrice;
-    const recentReturnPct = ((currentPrice - recentBase) / Math.max(1e-9, recentBase)) * 100;
-
-    const run = async () => {
-      let titles: string[] = [];
-      if (coin.market === "crypto") {
-        try {
-          const news = await fetchCoinNews({ data: { symbol: coin.symbol.toUpperCase() } });
-          titles = (news.items ?? []).slice(0, 8).map((i) => i.title);
-        } catch {
-          titles = [];
-        }
-      }
-      // Cached + time-decayed bias: avoids re-calling LLM every minute and
-      // ensures stale news fades out smoothly between refreshes.
-      const out = await getDecayedLlmSignal({
-        market: coin.market,
-        symbol: coin.symbol,
-        spotPrice: currentPrice,
-        recentReturnPct,
-        newsTitles: titles,
-        apiKey: runtimeConfig.llmApiKey || undefined,
-      });
-      setLlmSignal({ bias: out.bias, confidence: out.confidence, rationale: out.rationale });
-    };
-    void run();
-  }, [coin.market, coin.symbol, modelSeries, currentPrice, runtimeConfig.llmApiKey]);
+  }, [modelSeries, timeframe.id, adaptive]);
 
   // Record predictions periodically + resolve old ones (local + cloud learning)
   useEffect(() => {
@@ -268,10 +223,7 @@ function PredictionEngine() {
         horizonSeconds: timeframe.minutes * 60,
         hybridConfidence: prediction.hybridConfidence,
         weights: prediction.weights,
-        llmBias: llmSignal.bias,
         features: {
-          llmConfidence: llmSignal.confidence,
-          llmRationale: llmSignal.rationale,
           market: coin.market,
         },
       });
@@ -279,7 +231,7 @@ function PredictionEngine() {
       void loadWeights(coin.market, coin.id, timeframe.id).then(setAdaptive);
     }
     setStats(computeAccuracy(`${coin.market}:${coin.id}`, timeframe.id));
-  }, [prediction, currentPrice, coin.id, coin.market, timeframe, llmSignal]);
+  }, [prediction, currentPrice, coin.id, coin.market, timeframe]);
 
   const minutesPerStep = Math.max(1, timeframe.minutes / Math.min(timeframe.minutes, 200));
   const healthItems = useMemo(() => Object.values(providerHealth).sort((a, b) => a.provider.localeCompare(b.provider)), [providerHealth]);
@@ -322,9 +274,7 @@ function PredictionEngine() {
                   ? coin.binanceSymbol
                     ? "Binance tick"
                     : "5s poll"
-                  : coin.market === "forex"
-                    ? "Forex poll"
-                    : "SmartAPI poll"}
+                  : "SmartAPI poll"}
               </span>
               <span className="font-mono font-bold text-foreground">
                 {currentPrice > 0 ? `$${formatLive(currentPrice)}` : "—"}

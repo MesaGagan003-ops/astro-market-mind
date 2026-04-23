@@ -13,8 +13,7 @@ interface TrainerPoint {
   t: number;
   arima: number;
   hmm: number;
-  llm: number;
-  llmBias: number;
+  entropy: number;
 }
 
 export function TrainerPanel({ market, symbol, timeframe }: Props) {
@@ -40,7 +39,7 @@ export function TrainerPanel({ market, symbol, timeframe }: Props) {
 
       const { data: p } = await supabase
         .from("predictions")
-        .select("created_at,weights,llm_bias")
+        .select("created_at,weights")
         .eq("market", market)
         .eq("symbol", symbol)
         .eq("timeframe", timeframe)
@@ -53,8 +52,7 @@ export function TrainerPanel({ market, symbol, timeframe }: Props) {
             t: new Date(x.created_at).getTime(),
             arima: Number(w.arima ?? 0),
             hmm: Number(w.hmm ?? 0),
-            llm: Number(w.llm ?? 0),
-            llmBias: Number(x.llm_bias ?? 0),
+            entropy: Number(w.entropy ?? 0),
           };
         });
         setPts(arr);
@@ -73,13 +71,13 @@ export function TrainerPanel({ market, symbol, timeframe }: Props) {
     if (pts.length < 2) return 0;
     const first = pts[Math.max(0, pts.length - 10)];
     const last = pts[pts.length - 1];
-    return (last.arima + last.hmm + last.llm) - (first.arima + first.hmm + first.llm);
+    return (last.arima + last.hmm + last.entropy) - (first.arima + first.hmm + first.entropy);
   }, [pts]);
 
   return (
     <div className="panel p-4">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="font-display font-semibold text-sm">LLM Trainer Panel</h3>
+        <h3 className="font-display font-semibold text-sm">Adaptive Trainer Panel</h3>
         <span className="text-[10px] text-muted-foreground uppercase">{market} · {symbol} · {timeframe}</span>
       </div>
       <div className="grid grid-cols-3 gap-2 mb-2 text-xs">
@@ -96,13 +94,12 @@ export function TrainerPanel({ market, symbol, timeframe }: Props) {
             <Tooltip labelFormatter={(v) => new Date(Number(v)).toLocaleString()} />
             <Line type="monotone" dataKey="arima" stroke="var(--arima)" dot={false} strokeWidth={1.6} />
             <Line type="monotone" dataKey="hmm" stroke="var(--hmm)" dot={false} strokeWidth={1.6} />
-            <Line type="monotone" dataKey="llm" stroke="var(--quantum)" dot={false} strokeWidth={1.8} />
-            <Line type="monotone" dataKey="llmBias" stroke="var(--bull)" dot={false} strokeDasharray="4 2" strokeWidth={1.2} />
+            <Line type="monotone" dataKey="entropy" stroke="var(--entropy)" dot={false} strokeWidth={1.8} />
           </LineChart>
         </ResponsiveContainer>
       </div>
       <p className="text-[10px] text-muted-foreground mt-2">
-        Tracks weight evolution and LLM bias impact on the physics hybrid model.
+        Tracks evolving ARIMA/HMM/entropy weights and learning drift in the physics hybrid model.
       </p>
     </div>
   );
