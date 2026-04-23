@@ -134,16 +134,14 @@ export function subscribeAsset(asset: MarketAsset, onTick: TickHandler, opts?: S
   if (asset.market === "forex") {
     const base = asset.forexBase ?? "EUR";
     const quote = asset.forexQuote ?? "USD";
-    const mode = "free";
-    const premiumApiKey = "";
     let stopped = false;
     const poll = async () => {
       while (!stopped) {
         try {
-          const t = await fetchForexPrice({ data: { base, quote, mode, premiumApiKey } });
+          const t = await fetchForexPrice({ data: { base, quote, mode: "free", premiumApiKey: "" } });
           if (t.price > 0) {
             onTick(t);
-            opts?.onStatus?.({ provider: `forex:${(t as { provider?: string }).provider ?? "frankfurter"}`, state: mode === "auto" && (t as { provider?: string }).provider === "frankfurter" ? "fallback" : "live" });
+            opts?.onStatus?.({ provider: `forex:${(t as { provider?: string }).provider ?? "frankfurter"}`, state: "live" });
           }
         } catch (e) {
           opts?.onStatus?.({ provider: "forex", state: "failing", detail: String((e as Error)?.message ?? e) });
@@ -174,6 +172,8 @@ export function subscribeAsset(asset: MarketAsset, onTick: TickHandler, opts?: S
     });
     return subscribeYahoo(asset.yahooSymbol, onTick);
   }
+
+  return () => {};
 }
 
 export async function fetchAssetHistory(asset: MarketAsset, limit = 240, opts?: StreamOptions): Promise<Tick[]> {
@@ -186,10 +186,8 @@ export async function fetchAssetHistory(asset: MarketAsset, limit = 240, opts?: 
   if (asset.market === "forex") {
     const base = asset.forexBase ?? "EUR";
     const quote = asset.forexQuote ?? "USD";
-    const mode = "free";
-    const premiumApiKey = "";
     try {
-      const rows = await fetchForexHistory({ data: { base, quote, limit, mode, premiumApiKey } });
+      const rows = await fetchForexHistory({ data: { base, quote, limit, mode: "free", premiumApiKey: "" } });
       opts?.onStatus?.({ provider: "forex-history", state: "live" });
       return rows;
     } catch (e) {
