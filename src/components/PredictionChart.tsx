@@ -11,7 +11,12 @@ interface Props {
 export function PredictionChart({ history, prediction, currentPrice, minutesPerStep }: Props) {
   const histPoints = history.map((h) => ({ t: h.ts, actual: h.price }));
 
+  // Anchor the prediction at the LAST ACTUAL data point, not at the current
+  // wall-clock. This guarantees the predicted line continues seamlessly from
+  // where the actual tick data ends — no time gap, no price jump — across
+  // crypto, forex, NSE and BSE (whose feeds may lag the wall clock).
   const lastTs = history.length > 0 ? history[history.length - 1].ts : Date.now();
+  const lastActual = history.length > 0 ? history[history.length - 1].price : currentPrice;
   const stepMs = minutesPerStep * 60 * 1000;
   const futurePoints = prediction.forecast.map((f) => ({
     t: lastTs + f.step * stepMs,
@@ -24,8 +29,10 @@ export function PredictionChart({ history, prediction, currentPrice, minutesPerS
     sslL: f.sslLower,
   }));
 
-  // Bridge so predicted line begins exactly at the current spot price.
-  const bridge = { t: lastTs, actual: currentPrice, predicted: currentPrice };
+  // Bridge: predicted line begins exactly where actual line ends (same ts,
+  // same price). This removes the visible "jump" the chart used to show
+  // when currentPrice diverged from the last bar's close.
+  const bridge = { t: lastTs, actual: lastActual, predicted: lastActual };
   const data = [...histPoints, bridge, ...futurePoints];
 
   const allVals = data.flatMap((d: any) =>
