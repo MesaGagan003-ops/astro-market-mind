@@ -38,14 +38,16 @@ export function ApiConnectPanel({ value, onConnect }: Props) {
           <button
             onClick={() => setCollapsed((v) => !v)}
             className="px-2 py-1 rounded border border-border text-xs text-muted-foreground hover:text-foreground"
+            aria-label={collapsed ? "Maximize" : "Minimize"}
           >
-            {collapsed ? "Maximize" : "Minimize"}
+            ^
           </button>
           <button
             onClick={() => setMaximized((v) => !v)}
             className="px-2 py-1 rounded border border-border text-xs text-muted-foreground hover:text-foreground"
+            aria-label={maximized ? "Exit fullscreen" : "Fullscreen"}
           >
-            {maximized ? "Exit fullscreen" : "Fullscreen"}
+            ^
           </button>
           <button
             onClick={connect}
