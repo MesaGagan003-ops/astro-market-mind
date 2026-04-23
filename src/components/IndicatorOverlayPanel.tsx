@@ -106,8 +106,8 @@ export function IndicatorOverlayPanel({ history }: Props) {
           />
           <Tooltip
             contentStyle={{ background: "oklch(0.14 0.02 80)", border: "1px solid oklch(0.28 0.04 80)", borderRadius: 8, fontSize: 11 }}
-            labelFormatter={(v: number) => new Date(v).toLocaleString()}
-            formatter={(value: number, name: string) => [typeof value === "number" ? formatPrice(value) : String(value), name]}
+            labelFormatter={(v: any) => new Date(Number(v)).toLocaleString()}
+            formatter={(value: any, name: any) => [typeof value === "number" ? formatPrice(value) : String(value), String(name)]}
           />
           {/* VWAP band */}
           <Area dataKey="vwapU" stroke="oklch(0.72 0.18 280)" strokeWidth={0.6} strokeDasharray="2 4" fill="oklch(0.72 0.18 280)" fillOpacity={0.06} connectNulls isAnimationActive={false} />
@@ -133,7 +133,7 @@ export function IndicatorOverlayPanel({ history }: Props) {
           <ReferenceLine y={0} stroke="oklch(0.45 0.03 80)" strokeOpacity={0.6} />
           <Tooltip
             contentStyle={{ background: "oklch(0.14 0.02 80)", border: "1px solid oklch(0.28 0.04 80)", borderRadius: 8, fontSize: 11 }}
-            labelFormatter={(v: number) => new Date(v).toLocaleString()}
+            labelFormatter={(v: any) => new Date(Number(v)).toLocaleString()}
           />
           <Bar dataKey="macdHist" fill="oklch(0.78 0.20 305)" fillOpacity={0.55} isAnimationActive={false} />
           <Line dataKey="macd" stroke="oklch(0.85 0.16 85)" strokeWidth={1.4} dot={false} connectNulls isAnimationActive={false} />
