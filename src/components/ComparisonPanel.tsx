@@ -45,31 +45,55 @@ export function ComparisonPanel({ coin }: Props) {
     setLoading(true);
     setError(null);
     const cfg = RANGES.find((r) => r.key === range)!;
-    const truncate = range === "1h" ? 60 : undefined; // for 1h take last 60 points only
-
-    const symbolCandidates = buildYahooCandidates(coin);
-    const requestPlan: Array<{ interval: string; range: string }> = [
-      { interval: cfg.interval, range: cfg.range },
-      { interval: "5m", range: "5d" },
-      { interval: "15m", range: "1mo" },
-      { interval: "1h", range: "3mo" },
-      { interval: "1d", range: "1y" },
-    ];
+    const truncate = range === "1h" ? 60 : undefined;
 
     void (async () => {
       try {
         let hist: Array<{ ts: number; price: number }> = [];
-        for (const symbol of symbolCandidates) {
-          for (const req of requestPlan) {
-            hist = await fetchYahooHistory({ data: { symbol, interval: req.interval, range: req.range } });
+
+        if (coin.market === "crypto" && coin.binanceSymbol) {
+          try {
+            hist = await fetchBinanceKlines({
+              data: { symbol: coin.binanceSymbol, interval: cfg.binanceInterval, limit: cfg.binanceLimit },
+            });
+          } catch { /* fall through */ }
+          if (hist.length < 30) {
+            const sym = coin.yahooSymbol || `${coin.symbol.toUpperCase()}-USD`;
+            try {
+              hist = await fetchYahooHistory({ data: { symbol: sym, interval: cfg.interval, range: cfg.range } });
+            } catch { /* ignore */ }
+          }
+        } else if (coin.market === "forex") {
+          const base = coin.forexBase ?? coin.symbol.slice(0, 3).toUpperCase();
+          const quote = coin.forexQuote ?? coin.symbol.slice(3, 6).toUpperCase() ?? "USD";
+          try {
+            hist = await fetchForexHistory({ data: { base, quote, limit: cfg.forexLimit, mode: "free", premiumApiKey: "" } });
+          } catch { /* fall through */ }
+          if (hist.length < 30 && coin.yahooSymbol) {
+            hist = await fetchYahooHistory({ data: { symbol: coin.yahooSymbol, interval: cfg.interval, range: cfg.range } });
+          }
+        } else {
+          const symbolCandidates = buildYahooCandidates(coin);
+          const requestPlan: Array<{ interval: string; range: string }> = [
+            { interval: cfg.interval, range: cfg.range },
+            { interval: "5m", range: "5d" },
+            { interval: "15m", range: "1mo" },
+            { interval: "1h", range: "3mo" },
+            { interval: "1d", range: "1y" },
+          ];
+          for (const symbol of symbolCandidates) {
+            for (const req of requestPlan) {
+              hist = await fetchYahooHistory({ data: { symbol, interval: req.interval, range: req.range } });
+              if (hist.length > 30) break;
+            }
             if (hist.length > 30) break;
           }
-          if (hist.length > 30) break;
         }
+
         if (cancelled) return;
         if (!hist.length) {
           setRows([]);
-          setError("No historical data returned for this asset yet. Try another symbol or timeframe.");
+          setError("No historical data returned for this asset yet. Try a different range or asset.");
           setLoading(false);
           return;
         }
