@@ -49,6 +49,7 @@ export interface HybridOptions {
   adaptiveWeights?: Partial<{ arima: number; hmm: number; entropy: number; hurst: number; llm: number }>;
   llmBias?: number;
   llmConfidence?: number;
+  dataQualityScore?: number; // 0..1, where 1 = perfect data
 }
 
 export function hybridPredict(prices: number[], steps: number, options?: HybridOptions): HybridResult {
@@ -88,6 +89,8 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
 
   const llmBias = Math.max(-1, Math.min(1, Number(options?.llmBias ?? 0)));
   const llmConfidence = Math.max(0, Math.min(1, Number(options?.llmConfidence ?? 0)));
+  const qualityPenalty = Math.max(0, Math.min(1, Number(options?.dataQualityScore ?? 1)));
+  // If data quality is poor, reduce confidence. E.g., 0.5 quality → 0.5x confidence multiplier
 
   const learned = {
     arima: Math.max(0.05, Number(options?.adaptiveWeights?.arima ?? 0.45)),
@@ -164,7 +167,9 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
     (regimeAgrees > 0.5 ? 1 : 0) +
     (hurstAgrees > 0.5 ? 1 : 0);
   const consensusBonus = consensus >= 3 ? 0.08 : consensus === 2 ? 0.03 : 0;
-  const hybridConfidence = Math.max(0.35, Math.min(0.8, baseConfidence + consensusBonus));
+  // Apply data quality penalty: poor data reduces confidence
+  const confidenceBeforeCap = (baseConfidence + consensusBonus) * qualityPenalty;
+  const hybridConfidence = Math.max(0.35, Math.min(0.8, confidenceBeforeCap));
 
   return {
     arima, garch, hmm, entropy, hurst, hamiltonian, qsl, ssl,

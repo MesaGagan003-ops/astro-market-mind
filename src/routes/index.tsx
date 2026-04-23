@@ -29,11 +29,13 @@ import {
 import { recordPredictionCloud, resolvePendingPredictions, loadWeights } from "@/lib/learning";
 import type { AdaptiveWeights } from "@/lib/learning";
 import { DEFAULT_RUNTIME_CONFIG, loadRuntimeConfig, saveRuntimeConfig, type RuntimeConfig } from "@/lib/runtimeConfig";
+import { assessDataQuality, isReadyForTrading, type DataQualityScore } from "@/lib/dataQuality";
 import { fetchYahooHistory } from "@/lib/yahooProxy";
 import { CalibrationPanel } from "@/components/CalibrationPanel";
 import { WalkForwardPanel } from "@/components/WalkForwardPanel";
 import { PerformanceTable } from "@/components/PerformanceTable";
 import { DisclaimerModal, DisclaimerBanner, DisclaimerFooter } from "@/components/Disclaimer";
+import { TradingReadinessAlert } from "@/components/TradingReadinessAlert";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -64,6 +66,8 @@ function PredictionEngine() {
   const [providerHealth, setProviderHealth] = useState<Record<string, ProviderHealthItem>>({});
   const [yahooTrain, setYahooTrain] = useState<number[]>([]);
   const [adaptive, setAdaptive] = useState<AdaptiveWeights | null>(null);
+  const [dataQuality, setDataQuality] = useState<DataQualityScore>({ score: 0, isGappy: true, isSparse: true, isFresh: false, detail: "Initializing" });
+  const [isReadyToTrade, setIsReadyToTrade] = useState(false);
   const lastRecordRef = useRef<number>(0);
 
   const onStatus = useMemo<ProviderStatusHandler>(() => {
@@ -173,13 +177,20 @@ function PredictionEngine() {
     return merged.slice(-500);
   }, [resampled, yahooTrain]);
 
+  // Assess data quality from live ticks
+  const dataQualityMemo = useMemo(() => {
+    const quality = assessDataQuality(ticks);
+    setDataQuality(quality);
+    return quality;
+  }, [ticks]);
+
   // Run hybrid prediction — ONLY when a new 1-min bar closes (resampled.length
   // changes) or when the user picks a different timeframe. We deliberately do
   // NOT depend on `currentPrice` so the forecast does not jump on every tick.
   const prediction = useMemo(() => {
     if (modelSeries.length < 12) return null;
     const steps = Math.min(timeframe.minutes, 200);
-    return hybridPredict(modelSeries, steps, {
+    const pred = hybridPredict(modelSeries, steps, {
       adaptiveWeights: adaptive
         ? {
             arima: adaptive.arima,
@@ -188,9 +199,14 @@ function PredictionEngine() {
             hurst: adaptive.hurst,
           }
         : undefined,
+      dataQualityScore: dataQualityMemo.score,
     });
+    // Update trading readiness
+    const ready = isReadyForTrading(dataQualityMemo, stats.accuracy, stats.brier, adaptive?.samples ?? 0);
+    setIsReadyToTrade(ready);
+    return pred;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelSeries, timeframe.id, adaptive]);
+  }, [modelSeries, timeframe.id, adaptive, dataQualityMemo.score]);
 
   // Record predictions periodically + resolve old ones (local + cloud learning)
   useEffect(() => {
@@ -202,36 +218,40 @@ function PredictionEngine() {
     const interval = Math.max(30_000, (timeframe.minutes * 60 * 1000) / 4);
     if (now - lastRecordRef.current > interval) {
       lastRecordRef.current = now;
-      recordPrediction({
-        coinId: `${coin.market}:${coin.id}`,
-        timeframeId: timeframe.id,
-        startTs: now,
-        resolveTs: now + timeframe.minutes * 60 * 1000,
-        startPrice: currentPrice,
-        predictedPrice: prediction.finalPrice,
-        predictedDirection: prediction.direction,
-        hybridConfidence: prediction.hybridConfidence,
-      });
-      // Persist to Lovable Cloud for the adaptive learning loop
-      void recordPredictionCloud({
-        market: coin.market,
-        symbol: coin.id,
-        timeframe: timeframe.id,
-        spotPrice: currentPrice,
-        predictedPrice: prediction.finalPrice,
-        direction: prediction.direction,
-        horizonSeconds: timeframe.minutes * 60,
-        hybridConfidence: prediction.hybridConfidence,
-        weights: prediction.weights,
-        features: {
+      // Only record predictions if data quality is acceptable (>0.4) and confidence is >0.36
+      // This prevents training on noisy/sparse data that would hurt model learning
+      if (dataQuality.score > 0.4 && prediction.hybridConfidence > 0.36) {
+        recordPrediction({
+          coinId: `${coin.market}:${coin.id}`,
+          timeframeId: timeframe.id,
+          startTs: now,
+          resolveTs: now + timeframe.minutes * 60 * 1000,
+          startPrice: currentPrice,
+          predictedPrice: prediction.finalPrice,
+          predictedDirection: prediction.direction,
+          hybridConfidence: prediction.hybridConfidence,
+        });
+        // Persist to Lovable Cloud for the adaptive learning loop
+        void recordPredictionCloud({
           market: coin.market,
-        },
-      });
-      // Warm cache for adaptive weights (used by future hybrid runs)
-      void loadWeights(coin.market, coin.id, timeframe.id).then(setAdaptive);
+          symbol: coin.id,
+          timeframe: timeframe.id,
+          spotPrice: currentPrice,
+          predictedPrice: prediction.finalPrice,
+          direction: prediction.direction,
+          horizonSeconds: timeframe.minutes * 60,
+          hybridConfidence: prediction.hybridConfidence,
+          weights: prediction.weights,
+          features: {
+            market: coin.market,
+          },
+        });
+        // Warm cache for adaptive weights (used by future hybrid runs)
+        void loadWeights(coin.market, coin.id, timeframe.id).then(setAdaptive);
+      }
     }
     setStats(computeAccuracy(`${coin.market}:${coin.id}`, timeframe.id));
-  }, [prediction, currentPrice, coin.id, coin.market, timeframe]);
+  }, [prediction, currentPrice, coin.id, coin.market, timeframe, dataQuality.score]);
 
   const minutesPerStep = Math.max(1, timeframe.minutes / Math.min(timeframe.minutes, 200));
   const healthItems = useMemo(() => Object.values(providerHealth).sort((a, b) => a.provider.localeCompare(b.provider)), [providerHealth]);
@@ -293,6 +313,14 @@ function PredictionEngine() {
       {/* Main */}
       <main className="max-w-[1600px] mx-auto px-4 py-4 space-y-4">
         <DisclaimerBanner />
+
+        <TradingReadinessAlert
+          isReady={isReadyToTrade}
+          dataQualityScore={dataQuality.score}
+          recentAccuracy={stats.accuracy}
+          recentBrier={stats.brier}
+          sampleCount={adaptive?.samples ?? 0}
+        />
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <div className="xl:col-span-2">
