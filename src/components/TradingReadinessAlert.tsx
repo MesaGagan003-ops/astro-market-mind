@@ -17,6 +17,12 @@ export function TradingReadinessAlert({
   recentBrier,
   sampleCount,
 }: TradingReadinessAlertProps) {
+  // Avoid SSR hydration mismatch: server has no localStorage so accuracy/score
+  // start at 0, while the client mounts with persisted values. Render nothing
+  // on the first server pass; once mounted on the client we show real data.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  if (!mounted) return null;
   if (isReady) {
     return (
       <Alert className="border-green-500 bg-green-50">
