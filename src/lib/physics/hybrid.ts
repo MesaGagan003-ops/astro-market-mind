@@ -140,9 +140,13 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
     raw.push(price);
   }
 
+  // Per-step SSL band: interpolate from spot to the τ-step SSL endpoint
+  // along sqrt(t/τ) (Brownian-like growth) so the cone widens correctly.
+  const sslUpEnd = ssl.upper;
+  const sslLoEnd = ssl.lower;
   const forecast: ForecastPoint[] = raw.map((price, i) => {
     const sigma = sigmas[i] || garch.sigma;
-    const drift = arima.driftPerStep + regimeBias * garch.sigma * 0.1 + hamPush * 0.5;
+    const frac = Math.sqrt((i + 1) / Math.max(1, steps));
     return {
       step: i + 1,
       price,
@@ -150,8 +154,8 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
       lower: price - sigma,
       qslUpper: last + 2.4 * garch.sigma * Math.sqrt(i + 1),
       qslLower: last - 2.4 * garch.sigma * Math.sqrt(i + 1),
-      sslUpper: last + drift * (i + 1) + 1.96 * sigma * Math.sqrt(i + 1),
-      sslLower: last + drift * (i + 1) - 1.96 * sigma * Math.sqrt(i + 1),
+      sslUpper: last + (sslUpEnd - last) * frac,
+      sslLower: last + (sslLoEnd - last) * frac,
     };
   });
 
