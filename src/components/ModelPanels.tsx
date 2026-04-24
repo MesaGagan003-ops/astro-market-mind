@@ -167,13 +167,18 @@ export function ModelPanels({ result, minutes }: Props) {
       <Panel
         title="Stochastic Speed Limit"
         accent="var(--ssl)"
-        subtitle="Itô diffusion 95% bound"
+        subtitle="Master-equation bound"
       >
         <Row label="Upper bound" value={formatPrice(ssl.upper)} />
         <Row label="Lower bound" value={formatPrice(ssl.lower)} />
         <Row label="Reachable range" value={`±${formatPrice(ssl.reachableRange / 2)}`} />
+        <Row label="D_TV (prob. distance)" value={ssl.dTV.toFixed(3)} />
+        <Row label="⟨v⟩ (mean speed)" value={ssl.meanSpeed.toFixed(4)} />
+        <Row label="Tightness Q" value={ssl.tightness.toFixed(2)} />
         <p className="text-[10px] text-muted-foreground mt-2 leading-relaxed">
-          μT ± 1.96σ√T. Tighter than QSL when drift dominates noise.
+          τ ≥ D_TV / ⟨v⟩  (Master Equation, regime probabilities). Q→1 means the
+          system is following a near-optimal geodesic in probability space; Q≪1
+          means the bound has slack.
         </p>
       </Panel>
     </div>
