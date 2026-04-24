@@ -16,7 +16,7 @@ import { fitGarch11 } from "./garch";
 import { fitHmm3 } from "./hmm";
 import { shannonEntropy } from "./entropy";
 import { hurstExponent, hamiltonianEnergy, type HurstResult, type HamiltonianResult } from "./features";
-import { quantumSpeedLimit, stochasticSpeedLimit, type SpeedLimit } from "./speedLimits";
+import { quantumSpeedLimit, stochasticSpeedLimit, type SpeedLimit, type StochasticSpeedLimitDetail } from "./speedLimits";
 import { extractFeatures, type IndicatorFeatures } from "./indicators";
 
 export interface ForecastPoint {
@@ -38,7 +38,7 @@ export interface HybridResult {
   hurst: HurstResult;
   hamiltonian: HamiltonianResult;
   qsl: SpeedLimit;
-  ssl: SpeedLimit;
+  ssl: StochasticSpeedLimitDetail;
   indicators: IndicatorFeatures;
   forecast: ForecastPoint[];
   finalPrice: number;
@@ -83,11 +83,14 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
   const hamPush = Math.sign(hamiltonian.velocity) * Math.min(Math.abs(hamiltonian.velocity), 0.005) * last;
 
   const qsl = quantumSpeedLimit(last, garch.sigma, steps);
+  // Master-equation SSL: probability flow over HMM regimes, mapped to price.
   const ssl = stochasticSpeedLimit(
     last,
-    arima.driftPerStep + regimeBias * garch.sigma * 0.1 + hamPush * 0.5,
-    garch.sigma,
+    hmm.transitionMatrix,
+    hmm.stateProbs,
+    hmm.stateMeans,
     steps,
+    garch.sigma,
   );
 
   const llmBias = Math.max(-1, Math.min(1, Number(options?.llmBias ?? 0)));
