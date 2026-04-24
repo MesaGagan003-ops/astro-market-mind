@@ -213,9 +213,17 @@ export function DemoTrading({ coin, currentPrice, prediction }: Props) {
   return (
     <div className="panel p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="font-display font-semibold text-foreground text-sm">
-          Place Trade <span className="text-muted-foreground text-[10px] font-normal">(demo)</span>
-        </h3>
+        <div className="flex items-baseline gap-2">
+          <h3 className="font-display font-semibold text-foreground text-sm">
+            Demo Trade
+          </h3>
+          <span className="text-[10px] uppercase tracking-wider text-primary font-mono">
+            {coin.symbol.toUpperCase()}
+          </span>
+          <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+            {coin.market}
+          </span>
+        </div>
         <button
           onClick={resetAccount}
           className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
@@ -260,11 +268,55 @@ export function DemoTrading({ coin, currentPrice, prediction }: Props) {
         <NumField label="Entry" value={entry} onChange={setEntry} step="any" />
       </div>
 
+      {/* Manual SL / TP */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Stop Loss</span>
+            <button
+              onClick={() => setCustomSL(null)}
+              className="text-[9px] uppercase tracking-wider text-primary/70 hover:text-primary"
+              title="Use suggested 2σ stop"
+            >
+              auto
+            </button>
+          </div>
+          <input
+            type="number"
+            value={Number.isFinite(stop) ? +stop.toFixed(8) : 0}
+            step="any"
+            onChange={(e) => setCustomSL(parseFloat(e.target.value) || 0)}
+            className="w-full px-2 py-1.5 rounded bg-card border border-border text-xs font-mono outline-none focus:border-primary transition-colors"
+            style={{ color: colorBad }}
+          />
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Take Profit</span>
+            <button
+              onClick={() => setCustomTP(null)}
+              className="text-[9px] uppercase tracking-wider text-primary/70 hover:text-primary"
+              title="Use suggested 3σ TP"
+            >
+              auto
+            </button>
+          </div>
+          <input
+            type="number"
+            value={Number.isFinite(tp) ? +tp.toFixed(8) : 0}
+            step="any"
+            onChange={(e) => setCustomTP(parseFloat(e.target.value) || 0)}
+            className="w-full px-2 py-1.5 rounded bg-card border border-border text-xs font-mono outline-none focus:border-primary transition-colors"
+            style={{ color: colorOk }}
+          />
+        </div>
+      </div>
+
       {/* Risk box */}
       <div className="grid grid-cols-2 gap-1 p-2 rounded border border-border bg-card text-[10px]">
-        <div><span className="text-muted-foreground">Stop: </span><span className="text-primary font-bold">${fmtPrice(stop)}</span></div>
-        <div><span className="text-muted-foreground">TP: </span><span className="text-primary font-bold">${fmtPrice(tp)}</span></div>
-        <div><span className="text-muted-foreground">Risk: </span><span className="text-primary font-bold">${riskU.toFixed(2)}</span></div>
+        <div><span className="text-muted-foreground">Risk: </span><span className="font-bold" style={{ color: colorBad }}>${riskU.toFixed(2)}</span></div>
+        <div><span className="text-muted-foreground">Reward: </span><span className="font-bold" style={{ color: colorOk }}>${rewardU.toFixed(2)}</span></div>
+        <div><span className="text-muted-foreground">R:R: </span><span className="text-primary font-bold">{rrRatio.toFixed(2)}</span></div>
         <div><span className="text-muted-foreground">Kelly: </span><span className="text-primary font-bold">{(kelly * 100).toFixed(1)}%</span></div>
       </div>
 
