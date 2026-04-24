@@ -166,15 +166,25 @@ export function extractFeatures(prices: number[]): IndicatorFeatures {
   const histArr = m.hist.filter((v): v is number => v !== undefined);
   const macdHist = histArr[histArr.length - 1] ?? 0;
   const last = prices[prices.length - 1] || 1;
-  const macdNorm = macdHist / last;
-  // Consolidated bias:
-  //   • Strong VWAP-z (>2) → mean-revert signal opposite of z sign.
-  //   • EMA-slope fast & slow agreement → trend continuation signal.
-  //   • MACD hist polarity → momentum confirmation.
-  // Output clipped to [-1, 1].
+  // Scale-invariant normalization: express slope and MACD relative to the
+  // recent return-magnitude scale (mean |Δlog price|), not against absolute
+  // price. This is the only way the same bias formula works for BTC ($100k)
+  // AND for PEPE ($0.000012) — magic multipliers like *5000 saturate tanh
+  // immediately for low-priced coins and produce zero signal.
+  let absRetSum = 0, n = 0;
+  for (let i = Math.max(1, prices.length - 30); i < prices.length; i++) {
+    absRetSum += Math.abs(Math.log(prices[i] / prices[i - 1]));
+    n++;
+  }
+  const retScale = Math.max(1e-9, absRetSum / Math.max(1, n)); // typical |return| per bar
+  // emaSlope is already (price-units / bar) / price → unitless per-bar return.
+  // Scaling by retScale gives "slopes per σ-of-return" which is dimensionless.
+  const sFastZ = sFast / retScale;
+  const sSlowZ = sSlow / retScale;
+  const macdZ = (macdHist / last) / retScale;
   const meanRevert = -Math.tanh(vwapZ / 2.5) * 0.35;
-  const trend = Math.tanh((sFast * 5000 + sSlow * 3000)) * 0.45;
-  const momentum = Math.tanh(macdNorm * 8000) * 0.25;
+  const trend = Math.tanh(0.6 * sFastZ + 0.4 * sSlowZ) * 0.45;
+  const momentum = Math.tanh(macdZ * 0.5) * 0.25;
   const bias = Math.max(-1, Math.min(1, meanRevert + trend + momentum));
   return { vwapZ, emaSlopeFast: sFast, emaSlopeSlow: sSlow, macdHist, bias };
 }
