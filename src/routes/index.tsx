@@ -84,7 +84,10 @@ function PredictionEngine() {
     };
   }, []);
 
-  // Load history + subscribe live
+  // Load history + subscribe live.
+  // Long-session hardening: throttle tick → state writes to at most ~1/s, and
+  // cap the in-memory tick buffer so a 5-hour session does not grow unbounded
+  // re-render work or memory pressure.
   useEffect(() => {
     let cancelled = false;
     setTicks([]);
@@ -93,7 +96,6 @@ function PredictionEngine() {
     const init = async () => {
       let hist: Tick[] = await fetchAssetHistory(coin, 240, { onStatus });
       if (cancelled) return;
-      // downsample if too many
       if (hist.length > 240) {
         const step = Math.ceil(hist.length / 240);
         hist = hist.filter((_, i) => i % step === 0);
@@ -104,13 +106,40 @@ function PredictionEngine() {
 
     init();
 
-    const unsub = subscribeAsset(coin, (t) => {
+    let lastFlush = 0;
+    let pending: Tick | null = null;
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      flushTimer = null;
+      if (cancelled || !pending) return;
+      const t = pending;
+      pending = null;
+      lastFlush = Date.now();
       setCurrentPrice(t.price);
-      setTicks((prev) => [...prev.slice(-799), t]);
+      setTicks((prev) => {
+        // Hard cap at 800; also dedupe identical consecutive timestamps.
+        const last = prev[prev.length - 1];
+        if (last && last.ts === t.ts && last.price === t.price) return prev;
+        const next = prev.length >= 800 ? prev.slice(-799) : prev.slice();
+        next.push(t);
+        return next;
+      });
+    };
+
+    const unsub = subscribeAsset(coin, (t) => {
+      pending = t;
+      const now = Date.now();
+      const since = now - lastFlush;
+      if (since >= 1000) {
+        flush();
+      } else if (!flushTimer) {
+        flushTimer = setTimeout(flush, 1000 - since);
+      }
     }, { onStatus });
 
     return () => {
       cancelled = true;
+      if (flushTimer) clearTimeout(flushTimer);
       unsub?.();
     };
   }, [coin, onStatus]);
@@ -176,16 +205,27 @@ function PredictionEngine() {
     return merged.slice(-500);
   }, [resampled, yahooTrain]);
 
-  // Assess data quality from live ticks
-  const dataQualityMemo = useMemo(() => {
-    const quality = assessDataQuality(ticks);
-    setDataQuality(quality);
-    return quality;
+  // Assess data quality from live ticks (pure compute — no setState here)
+  const dataQualityMemo = useMemo(() => assessDataQuality(ticks), [ticks]);
+
+  // Mirror it into state in an effect so children that read `dataQuality`
+  // still get updates, without violating React's "no side effects in useMemo"
+  // rule (which was triggering hydration mismatches on long sessions).
+  useEffect(() => {
+    setDataQuality(dataQualityMemo);
+  }, [dataQualityMemo]);
+
+  // Run hybrid prediction — gate on the NUMBER of distinct 1-minute buckets
+  // (a stable integer) rather than on the modelSeries array reference, which
+  // would change every throttled tick and re-fit GARCH/HMM/ARIMA needlessly.
+  // Over a 5-hour session this prevents thousands of redundant heavy fits.
+  const minuteBuckets = useMemo(() => {
+    if (ticks.length === 0) return 0;
+    const set = new Set<number>();
+    for (const t of ticks) set.add(Math.floor(t.ts / 60000));
+    return set.size;
   }, [ticks]);
 
-  // Run hybrid prediction — ONLY when a new 1-min bar closes (resampled.length
-  // changes) or when the user picks a different timeframe. We deliberately do
-  // NOT depend on `currentPrice` so the forecast does not jump on every tick.
   const prediction = useMemo(() => {
     if (modelSeries.length < 12) return null;
     const steps = Math.min(timeframe.minutes, 200);
@@ -200,12 +240,16 @@ function PredictionEngine() {
         : undefined,
       dataQualityScore: dataQualityMemo.score,
     });
-    // Update trading readiness
-    const ready = isReadyForTrading(dataQualityMemo, stats.accuracy, stats.brier, adaptive?.samples ?? 0);
-    setIsReadyToTrade(ready);
     return pred;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelSeries, timeframe.id, adaptive, dataQualityMemo.score]);
+  }, [minuteBuckets, timeframe.id, adaptive, dataQualityMemo.score]);
+
+  // Trading-readiness derived state — moved out of useMemo to fix SSR
+  // hydration mismatch ("Model accuracy too low: X% vs 0.0%") and avoid
+  // double-renders during long sessions.
+  useEffect(() => {
+    setIsReadyToTrade(isReadyForTrading(dataQualityMemo, stats.accuracy, stats.brier, adaptive?.samples ?? 0));
+  }, [dataQualityMemo, stats.accuracy, stats.brier, adaptive?.samples]);
 
   // Record predictions periodically + resolve old ones (local + cloud learning)
   useEffect(() => {
