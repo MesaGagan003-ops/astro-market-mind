@@ -84,7 +84,10 @@ function PredictionEngine() {
     };
   }, []);
 
-  // Load history + subscribe live
+  // Load history + subscribe live.
+  // Long-session hardening: throttle tick → state writes to at most ~1/s, and
+  // cap the in-memory tick buffer so a 5-hour session does not grow unbounded
+  // re-render work or memory pressure.
   useEffect(() => {
     let cancelled = false;
     setTicks([]);
@@ -93,7 +96,6 @@ function PredictionEngine() {
     const init = async () => {
       let hist: Tick[] = await fetchAssetHistory(coin, 240, { onStatus });
       if (cancelled) return;
-      // downsample if too many
       if (hist.length > 240) {
         const step = Math.ceil(hist.length / 240);
         hist = hist.filter((_, i) => i % step === 0);
@@ -104,13 +106,40 @@ function PredictionEngine() {
 
     init();
 
-    const unsub = subscribeAsset(coin, (t) => {
+    let lastFlush = 0;
+    let pending: Tick | null = null;
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      flushTimer = null;
+      if (cancelled || !pending) return;
+      const t = pending;
+      pending = null;
+      lastFlush = Date.now();
       setCurrentPrice(t.price);
-      setTicks((prev) => [...prev.slice(-799), t]);
+      setTicks((prev) => {
+        // Hard cap at 800; also dedupe identical consecutive timestamps.
+        const last = prev[prev.length - 1];
+        if (last && last.ts === t.ts && last.price === t.price) return prev;
+        const next = prev.length >= 800 ? prev.slice(-799) : prev.slice();
+        next.push(t);
+        return next;
+      });
+    };
+
+    const unsub = subscribeAsset(coin, (t) => {
+      pending = t;
+      const now = Date.now();
+      const since = now - lastFlush;
+      if (since >= 1000) {
+        flush();
+      } else if (!flushTimer) {
+        flushTimer = setTimeout(flush, 1000 - since);
+      }
     }, { onStatus });
 
     return () => {
       cancelled = true;
+      if (flushTimer) clearTimeout(flushTimer);
       unsub?.();
     };
   }, [coin, onStatus]);
