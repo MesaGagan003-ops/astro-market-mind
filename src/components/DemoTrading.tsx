@@ -82,7 +82,16 @@ export function DemoTrading({ coin, currentPrice, prediction }: Props) {
   const [size, setSize] = useState<number>(100);
   const [lev, setLev] = useState<number>(2);
   const [entry, setEntry] = useState<number>(currentPrice || 0);
+  const [customSL, setCustomSL] = useState<number | null>(null);
+  const [customTP, setCustomTP] = useState<number | null>(null);
   const [tab, setTab] = useState<"pos" | "log" | "stats">("pos");
+
+  // Reset entry & custom SL/TP when the selected coin/market changes
+  useEffect(() => {
+    setEntry(currentPrice || 0);
+    setCustomSL(null);
+    setCustomTP(null);
+  }, [coin.market, coin.symbol]);
 
   useEffect(() => {
     if (currentPrice > 0) setEntry((e) => (e === 0 ? currentPrice : e));
