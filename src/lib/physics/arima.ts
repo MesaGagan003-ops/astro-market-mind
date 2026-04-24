@@ -116,9 +116,10 @@ export function fitArima111(prices: number[]): ArimaResult {
     let p = lastPrice;
     let prevY = d[d.length - 1] ?? 0;        // last observed differenced value
     let prevE = resid[resid.length - 1] ?? 0; // last in-sample shock
-    // Clamp shocks to ±2σ so a single outlier residual cannot send the
-    // whole forecast flying — keeps wiggles realistic but bounded.
-    const shockCap = 2 * residualStd;
+    // Clamp shocks to ±3σ (instead of 2σ) — the previous 2σ cap discarded
+    // ~5% of legitimate moves and visibly flattened forecasts on volatile
+    // small-cap coins. 3σ keeps the heavy tail without runaway outliers.
+    const shockCap = 3 * residualStd;
     for (let i = 0; i < steps; i++) {
       let eps = gaussian(rng) * residualStd;
       if (eps > shockCap) eps = shockCap;
