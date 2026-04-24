@@ -105,11 +105,15 @@ export function DemoTrading({ coin, currentPrice, prediction }: Props) {
     else if (prediction?.direction === "down") setDirection("short");
   }, [prediction?.direction]);
 
-  // Stop / TP based on GARCH sigma (2σ stop, 3σ TP — same as mockup)
+  // Suggested Stop / TP from GARCH sigma (2σ stop, 3σ TP). User can override.
   const sig = (prediction?.garch.sigma ?? 0) * 0.5;
-  const stop = direction === "long" ? entry - sig * 2 : entry + sig * 2;
-  const tp = direction === "long" ? entry + sig * 3 : entry - sig * 3;
+  const suggestedStop = direction === "long" ? entry - sig * 2 : entry + sig * 2;
+  const suggestedTp = direction === "long" ? entry + sig * 3 : entry - sig * 3;
+  const stop = customSL ?? suggestedStop;
+  const tp = customTP ?? suggestedTp;
   const riskU = entry > 0 ? size * lev * (Math.abs(entry - stop) / entry) : 0;
+  const rewardU = entry > 0 ? size * lev * (Math.abs(tp - entry) / entry) : 0;
+  const rrRatio = riskU > 0 ? rewardU / riskU : 0;
   const kelly = 0.275; // half-Kelly @ 55% wr, 1.5 RR
 
   const unrealized = useMemo(() => {
