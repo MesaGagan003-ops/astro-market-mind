@@ -264,10 +264,25 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
     : direction === "down" ? (indicators.bias < -0.15 ? 1 : indicators.bias < 0 ? 0.5 : 0)
     : 0.4;
   const indicatorBoost = indicatorAgrees * 0.04;
-  const finalConfidence = Math.max(0.55, Math.min(0.90, hybridConfidence + indicatorBoost));
+  // Phase B confidence penalties: cluster regimes & multifractal regime-shifts
+  // shrink confidence because the system is in a fragile/transitional state.
+  const hawkesPenalty = hawkes.cascadeProbability * profile.hawkesPenaltyMax;
+  const mfPenalty = (multifractal.regimeShiftRisk === "high" ? 1 : multifractal.regimeShiftRisk === "medium" ? 0.5 : 0)
+    * profile.multifractalPenaltyMax;
+  const finalConfidence = Math.max(
+    0.50,
+    Math.min(0.92, hybridConfidence + indicatorBoost - hawkesPenalty - mfPenalty),
+  );
+
+  // Fokker–Planck PDF at horizon (uses log-return drift+sigma from GARCH+jumps).
+  const fpDrift = arima.driftPerStep / Math.max(1e-9, last); // log-return drift
+  const fpSigmaTotal = Math.sqrt(garch.sigmaReturn * garch.sigmaReturn + jump.jumpVar);
+  const fokkerPlanck = fokkerPlanckEvolve(last, fpDrift, fpSigmaTotal, steps);
 
   return {
     arima, garch, hmm, entropy, hurst, hamiltonian, indicators, qsl, ssl,
+    kalman, jump, hawkes, wavelet, transferEntropy: te, multifractal,
+    fokkerPlanck, marketProfile: profile,
     forecast, finalPrice, direction, hybridConfidence: finalConfidence, weights,
   };
 }
