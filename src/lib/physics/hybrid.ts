@@ -49,6 +49,14 @@ export interface HybridResult {
   qsl: SpeedLimit;
   ssl: StochasticSpeedLimitDetail;
   indicators: IndicatorFeatures;
+  kalman: KalmanResult;
+  jump: JumpDiffusionResult;
+  hawkes: HawkesResult;
+  wavelet: WaveletResult;
+  transferEntropy: TransferEntropyResult;
+  multifractal: MultifractalResult;
+  fokkerPlanck: FokkerPlanckResult;
+  marketProfile: MarketPhysicsProfile;
   forecast: ForecastPoint[];
   finalPrice: number;
   direction: "up" | "down" | "flat";
@@ -61,16 +69,46 @@ export interface HybridOptions {
   llmBias?: number;
   llmConfidence?: number;
   dataQualityScore?: number; // 0..1, where 1 = perfect data
+  market?: MarketKind;       // selects per-market physics profile
+  leaderPrices?: number[];   // optional leader series (e.g. BTC for alts) for transfer entropy
 }
 
 export function hybridPredict(prices: number[], steps: number, options?: HybridOptions): HybridResult {
-  const arima = fitArima111(prices);
-  const garch = fitGarch11(prices);
-  const hmm = fitHmm3(prices);
-  const entropy = shannonEntropy(prices);
-  const hurst = hurstExponent(prices);
-  const hamiltonian = hamiltonianEnergy(prices);
+  const market: MarketKind = options?.market ?? "crypto";
+  const profile = getMarketProfile(market);
+
+  // === Phase B Tier-1: Kalman pre-filter ===
+  // Feed denoised series into ARIMA/GARCH/HMM. The RAW series is still used
+  // for jump detection (we want to see the actual spikes) and for the spot
+  // price. This single change cuts micro-noise that GARCH would otherwise
+  // misclassify as volatility — biggest single lift on choppy alts/forex.
+  const kalman = kalmanFilter(prices, { rScale: profile.kalmanRScale });
+  const filteredPrices = kalman.filtered;
+
+  // Wavelet trend — used to blend ARIMA input toward smoothed trend.
+  const wavelet = waveletDecompose(prices);
+  const blended: number[] = filteredPrices.map((p, i) =>
+    p * (1 - profile.waveletSmoothing) + wavelet.trend[i] * profile.waveletSmoothing,
+  );
+
+  const arima = fitArima111(blended);
+  const garch = fitGarch11(blended);
+  const hmm = fitHmm3(blended);
+  const entropy = shannonEntropy(blended);
+  const hurst = hurstExponent(blended);
+  const hamiltonian = hamiltonianEnergy(prices); // raw — we want true energy
   const indicators = extractFeatures(prices);
+
+  // === Tier-1: Jump-diffusion + Hawkes (use RAW prices for jump detection) ===
+  const jump = fitJumpDiffusion(prices);
+  const hawkes = profile.hawkesEnabled
+    ? fitHawkes(prices)
+    : { mu: 0, alpha: 0, beta: 1, branching: 0, currentIntensity: 0, cascadeProbability: 0, isClusterRegime: false };
+
+  // === Tier-2: Multifractal + Transfer Entropy ===
+  const multifractal = multifractalSpectrum(prices);
+  const te = transferEntropy(prices, options?.leaderPrices ?? null);
+
   const last = prices[prices.length - 1];
 
   // Seed by series LENGTH only (not by exact price). This keeps the wiggle
