@@ -170,6 +170,20 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
   // shocks regardless of entropy / Hurst values.
   const raw: number[] = [];
   const trustTrend = (0.25 + 0.75 * edge) * hurstTrust;
+  // Tier-1+2 drift contributions (per-step, scaled by garch.sigma):
+  //   - Jump-diffusion expected drift (Kou compound Poisson)
+  //   - Hawkes asymmetry: when cluster regime is on AND last jump direction
+  //     was up/down, push the trend that way (cascades persist).
+  //   - Transfer-entropy self-direction (signed)
+  const jumpDriftPerStep = jump.expectedJumpDrift * last * profile.jumpDriftWeight;
+  const hawkesPush = hawkes.isClusterRegime && jump.recentJump
+    ? (jump.recentJump.direction === "up" ? 1 : -1) * hawkes.cascadeProbability * garch.sigma * 0.35
+    : 0;
+  const tePush = te.selfDirection * profile.transferEntropyWeight * garch.sigma * 0.4;
+  const crossTePush = te.crossTE && te.crossTE > 0.02 && options?.leaderPrices
+    ? Math.sign(options.leaderPrices[options.leaderPrices.length - 1] - options.leaderPrices[Math.max(0, options.leaderPrices.length - 6)])
+      * te.crossTE * profile.transferEntropyWeight * garch.sigma * 0.6
+    : 0;
   for (let i = 0; i < steps; i++) {
     const baseDrift = arima.driftPerStep * (i + 1);
     const wiggle = arimaPath[i] - last - baseDrift; // pure stochastic component
@@ -177,7 +191,11 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
       + regimeBias * garch.sigma * 0.18 * (i + 1)
       + hamPush * (i + 1) * 0.4
       + indicators.bias * weights.indicators * garch.sigma * 0.55 * (i + 1)
-      + llmBias * llmConfidence * weights.llm * garch.sigma * 0.2 * (i + 1);
+      + llmBias * llmConfidence * weights.llm * garch.sigma * 0.2 * (i + 1)
+      + jumpDriftPerStep * (i + 1)
+      + hawkesPush * (i + 1)
+      + tePush * (i + 1)
+      + crossTePush * (i + 1);
     trend *= trustTrend;
     let price = last + trend + wiggle; // wiggle preserved at full amplitude
     // QSL hard clip
