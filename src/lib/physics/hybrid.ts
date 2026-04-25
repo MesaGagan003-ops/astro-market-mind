@@ -18,6 +18,15 @@ import { shannonEntropy } from "./entropy";
 import { hurstExponent, hamiltonianEnergy, type HurstResult, type HamiltonianResult } from "./features";
 import { quantumSpeedLimit, stochasticSpeedLimit, type SpeedLimit, type StochasticSpeedLimitDetail } from "./speedLimits";
 import { extractFeatures, type IndicatorFeatures } from "./indicators";
+import { kalmanFilter, type KalmanResult } from "./kalman";
+import { fitJumpDiffusion, type JumpDiffusionResult } from "./jumpDiffusion";
+import { fitHawkes, type HawkesResult } from "./hawkes";
+import { fokkerPlanckEvolve, type FokkerPlanckResult } from "./fokkerPlanck";
+import { waveletDecompose, type WaveletResult } from "./wavelet";
+import { transferEntropy, type TransferEntropyResult } from "./transferEntropy";
+import { multifractalSpectrum, type MultifractalResult } from "./multifractal";
+import { getMarketProfile, type MarketPhysicsProfile } from "./marketProfiles";
+import type { MarketKind } from "@/lib/markets";
 
 export interface ForecastPoint {
   step: number;
@@ -40,6 +49,14 @@ export interface HybridResult {
   qsl: SpeedLimit;
   ssl: StochasticSpeedLimitDetail;
   indicators: IndicatorFeatures;
+  kalman: KalmanResult;
+  jump: JumpDiffusionResult;
+  hawkes: HawkesResult;
+  wavelet: WaveletResult;
+  transferEntropy: TransferEntropyResult;
+  multifractal: MultifractalResult;
+  fokkerPlanck: FokkerPlanckResult;
+  marketProfile: MarketPhysicsProfile;
   forecast: ForecastPoint[];
   finalPrice: number;
   direction: "up" | "down" | "flat";
@@ -52,16 +69,46 @@ export interface HybridOptions {
   llmBias?: number;
   llmConfidence?: number;
   dataQualityScore?: number; // 0..1, where 1 = perfect data
+  market?: MarketKind;       // selects per-market physics profile
+  leaderPrices?: number[];   // optional leader series (e.g. BTC for alts) for transfer entropy
 }
 
 export function hybridPredict(prices: number[], steps: number, options?: HybridOptions): HybridResult {
-  const arima = fitArima111(prices);
-  const garch = fitGarch11(prices);
-  const hmm = fitHmm3(prices);
-  const entropy = shannonEntropy(prices);
-  const hurst = hurstExponent(prices);
-  const hamiltonian = hamiltonianEnergy(prices);
+  const market: MarketKind = options?.market ?? "crypto";
+  const profile = getMarketProfile(market);
+
+  // === Phase B Tier-1: Kalman pre-filter ===
+  // Feed denoised series into ARIMA/GARCH/HMM. The RAW series is still used
+  // for jump detection (we want to see the actual spikes) and for the spot
+  // price. This single change cuts micro-noise that GARCH would otherwise
+  // misclassify as volatility — biggest single lift on choppy alts/forex.
+  const kalman = kalmanFilter(prices, { rScale: profile.kalmanRScale });
+  const filteredPrices = kalman.filtered;
+
+  // Wavelet trend — used to blend ARIMA input toward smoothed trend.
+  const wavelet = waveletDecompose(prices);
+  const blended: number[] = filteredPrices.map((p, i) =>
+    p * (1 - profile.waveletSmoothing) + wavelet.trend[i] * profile.waveletSmoothing,
+  );
+
+  const arima = fitArima111(blended);
+  const garch = fitGarch11(blended);
+  const hmm = fitHmm3(blended);
+  const entropy = shannonEntropy(blended);
+  const hurst = hurstExponent(blended);
+  const hamiltonian = hamiltonianEnergy(prices); // raw — we want true energy
   const indicators = extractFeatures(prices);
+
+  // === Tier-1: Jump-diffusion + Hawkes (use RAW prices for jump detection) ===
+  const jump = fitJumpDiffusion(prices);
+  const hawkes = profile.hawkesEnabled
+    ? fitHawkes(prices)
+    : { mu: 0, alpha: 0, beta: 1, branching: 0, currentIntensity: 0, cascadeProbability: 0, isClusterRegime: false };
+
+  // === Tier-2: Multifractal + Transfer Entropy ===
+  const multifractal = multifractalSpectrum(prices);
+  const te = transferEntropy(prices, options?.leaderPrices ?? null);
+
   const last = prices[prices.length - 1];
 
   // Seed by series LENGTH only (not by exact price). This keeps the wiggle
@@ -123,6 +170,20 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
   // shocks regardless of entropy / Hurst values.
   const raw: number[] = [];
   const trustTrend = (0.25 + 0.75 * edge) * hurstTrust;
+  // Tier-1+2 drift contributions (per-step, scaled by garch.sigma):
+  //   - Jump-diffusion expected drift (Kou compound Poisson)
+  //   - Hawkes asymmetry: when cluster regime is on AND last jump direction
+  //     was up/down, push the trend that way (cascades persist).
+  //   - Transfer-entropy self-direction (signed)
+  const jumpDriftPerStep = jump.expectedJumpDrift * last * profile.jumpDriftWeight;
+  const hawkesPush = hawkes.isClusterRegime && jump.recentJump
+    ? (jump.recentJump.direction === "up" ? 1 : -1) * hawkes.cascadeProbability * garch.sigma * 0.35
+    : 0;
+  const tePush = te.selfDirection * profile.transferEntropyWeight * garch.sigma * 0.4;
+  const crossTePush = te.crossTE && te.crossTE > 0.02 && options?.leaderPrices
+    ? Math.sign(options.leaderPrices[options.leaderPrices.length - 1] - options.leaderPrices[Math.max(0, options.leaderPrices.length - 6)])
+      * te.crossTE * profile.transferEntropyWeight * garch.sigma * 0.6
+    : 0;
   for (let i = 0; i < steps; i++) {
     const baseDrift = arima.driftPerStep * (i + 1);
     const wiggle = arimaPath[i] - last - baseDrift; // pure stochastic component
@@ -130,7 +191,11 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
       + regimeBias * garch.sigma * 0.18 * (i + 1)
       + hamPush * (i + 1) * 0.4
       + indicators.bias * weights.indicators * garch.sigma * 0.55 * (i + 1)
-      + llmBias * llmConfidence * weights.llm * garch.sigma * 0.2 * (i + 1);
+      + llmBias * llmConfidence * weights.llm * garch.sigma * 0.2 * (i + 1)
+      + jumpDriftPerStep * (i + 1)
+      + hawkesPush * (i + 1)
+      + tePush * (i + 1)
+      + crossTePush * (i + 1);
     trend *= trustTrend;
     let price = last + trend + wiggle; // wiggle preserved at full amplitude
     // QSL hard clip
@@ -199,10 +264,25 @@ export function hybridPredict(prices: number[], steps: number, options?: HybridO
     : direction === "down" ? (indicators.bias < -0.15 ? 1 : indicators.bias < 0 ? 0.5 : 0)
     : 0.4;
   const indicatorBoost = indicatorAgrees * 0.04;
-  const finalConfidence = Math.max(0.55, Math.min(0.90, hybridConfidence + indicatorBoost));
+  // Phase B confidence penalties: cluster regimes & multifractal regime-shifts
+  // shrink confidence because the system is in a fragile/transitional state.
+  const hawkesPenalty = hawkes.cascadeProbability * profile.hawkesPenaltyMax;
+  const mfPenalty = (multifractal.regimeShiftRisk === "high" ? 1 : multifractal.regimeShiftRisk === "medium" ? 0.5 : 0)
+    * profile.multifractalPenaltyMax;
+  const finalConfidence = Math.max(
+    0.50,
+    Math.min(0.92, hybridConfidence + indicatorBoost - hawkesPenalty - mfPenalty),
+  );
+
+  // Fokker–Planck PDF at horizon (uses log-return drift+sigma from GARCH+jumps).
+  const fpDrift = arima.driftPerStep / Math.max(1e-9, last); // log-return drift
+  const fpSigmaTotal = Math.sqrt(garch.sigmaReturn * garch.sigmaReturn + jump.jumpVar);
+  const fokkerPlanck = fokkerPlanckEvolve(last, fpDrift, fpSigmaTotal, steps);
 
   return {
     arima, garch, hmm, entropy, hurst, hamiltonian, indicators, qsl, ssl,
+    kalman, jump, hawkes, wavelet, transferEntropy: te, multifractal,
+    fokkerPlanck, marketProfile: profile,
     forecast, finalPrice, direction, hybridConfidence: finalConfidence, weights,
   };
 }

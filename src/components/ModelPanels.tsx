@@ -8,10 +8,47 @@ interface Props {
 }
 
 export function ModelPanels({ result, minutes }: Props) {
-  const { arima, garch, hmm, entropy, hurst, hamiltonian, qsl, ssl } = result;
+  const { arima, garch, hmm, entropy, hurst, hamiltonian, qsl, ssl,
+    kalman, jump, hawkes, wavelet, transferEntropy: te, multifractal, fokkerPlanck } = result;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      {/* === Phase B Tier 1+2 physics summary === */}
+      <Panel
+        title="Phase B Physics (Tier 1+2)"
+        accent="var(--primary)"
+        subtitle="Kalman · Jump-Diffusion · Hawkes · Fokker–Planck · Wavelet · Transfer Entropy · Multifractal"
+        full
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
+          <Row label="Kalman SNR" value={kalman.snr.toFixed(2)} />
+          <Row label="Kalman velocity" value={signedPrice(kalman.velocity)} />
+          <Row label="Jump rate λ (per step)" value={jump.lambda.toFixed(4)} />
+          <Row label="Jump variance share" value={`${(jump.jumpFraction * 100).toFixed(1)}%`} />
+          <Row label="P(up jump)" value={`${(jump.pUp * 100).toFixed(0)}%`} />
+          <Row label="Hawkes branching n=α/β" value={hawkes.branching.toFixed(3)} />
+          <Row label="Hawkes intensity λ(t)" value={hawkes.currentIntensity.toFixed(4)} />
+          <Row label="P(cascade in 10 steps)" value={`${(hawkes.cascadeProbability * 100).toFixed(1)}%`} />
+          <Row label="Wavelet dominant scale" value={`2^${wavelet.dominantScale + 1} bars`} />
+          <Row label="Wavelet trend slope" value={`${(wavelet.trendSlope * 100).toFixed(3)}%`} />
+          <Row label="Transfer entropy (self)" value={te.selfTE.toFixed(3)} />
+          <Row label="Transfer entropy (cross)" value={te.crossTE != null ? te.crossTE.toFixed(3) : "—"} />
+          <Row label="Multifractal width Δh" value={multifractal.width.toFixed(3)} />
+          <Row label="Regime-shift risk" value={multifractal.regimeShiftRisk.toUpperCase()} />
+          <Row label="Fokker–Planck mean" value={formatPrice(fokkerPlanck.mean)} />
+          <Row label="FP 90% band" value={`${formatPrice(fokkerPlanck.bands[2].lower)} – ${formatPrice(fokkerPlanck.bands[2].upper)}`} />
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
+          {hawkes.isClusterRegime
+            ? "⚠ CLUSTER REGIME — Hawkes self-excitation high; expect more jumps soon."
+            : multifractal.regimeShiftRisk === "high"
+              ? "⚠ REGIME SHIFT WARNING — multifractal width spiked; ARIMA confidence reduced."
+              : jump.jumpFraction > 0.4
+                ? "Fat-tail regime — jump variance dominates diffusion. Hybrid drift includes Kou compound-Poisson term."
+                : "Diffusion-dominated regime — Gaussian assumption holds; full ensemble engaged."}
+        </p>
+      </Panel>
+
       <Panel
         title="ARIMA(1,1,1)"
         accent="var(--arima)"

@@ -239,10 +239,11 @@ function PredictionEngine() {
           }
         : undefined,
       dataQualityScore: dataQualityMemo.score,
+      market: coin.market,
     });
     return pred;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minuteBuckets, timeframe.id, adaptive, dataQualityMemo.score]);
+  }, [minuteBuckets, timeframe.id, adaptive, dataQualityMemo.score, coin.market]);
 
   // Trading-readiness derived state — moved out of useMemo to fix SSR
   // hydration mismatch ("Model accuracy too low: X% vs 0.0%") and avoid
