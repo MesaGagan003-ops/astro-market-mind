@@ -18,6 +18,15 @@ import { shannonEntropy } from "./entropy";
 import { hurstExponent, hamiltonianEnergy, type HurstResult, type HamiltonianResult } from "./features";
 import { quantumSpeedLimit, stochasticSpeedLimit, type SpeedLimit, type StochasticSpeedLimitDetail } from "./speedLimits";
 import { extractFeatures, type IndicatorFeatures } from "./indicators";
+import { kalmanFilter, type KalmanResult } from "./kalman";
+import { fitJumpDiffusion, type JumpDiffusionResult } from "./jumpDiffusion";
+import { fitHawkes, type HawkesResult } from "./hawkes";
+import { fokkerPlanckEvolve, type FokkerPlanckResult } from "./fokkerPlanck";
+import { waveletDecompose, type WaveletResult } from "./wavelet";
+import { transferEntropy, type TransferEntropyResult } from "./transferEntropy";
+import { multifractalSpectrum, type MultifractalResult } from "./multifractal";
+import { getMarketProfile, type MarketPhysicsProfile } from "./marketProfiles";
+import type { MarketKind } from "@/lib/markets";
 
 export interface ForecastPoint {
   step: number;
